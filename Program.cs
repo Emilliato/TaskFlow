@@ -1,10 +1,11 @@
-// TaskFlow API — same pipeline as episode 2.3, but the endpoints no longer
-// bind to the entity. Requests arrive as DTOs, get validated in two layers
-// (data annotations, then FluentValidation), and leave as DTOs. The whole
-// contract is published as a real OpenAPI document at /openapi/v1.json.
+// TaskFlow API — episode 3.1. The endpoints, DTOs, validation and pipeline are
+// exactly what 2.4 left behind. What changed is underneath: ITaskService is no
+// longer a List<TaskItem> in memory, it is EF Core over a SQLite file. Nothing
+// above the interface had to know.
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using TaskFlow;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,8 +17,31 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "HH:mm:ss.fff ";
 });
 
+// ---- Episode 3.1 ----------------------------------------------------------
+// 0. The connection string lives in configuration, not in code. For SQLite it
+//    is just a file path: one file, no server, no install.
+var connectionString = builder.Configuration.GetConnectionString("TaskFlow")
+                       ?? "Data Source=taskflow.db";
+
+// 0b. AddDbContext registers the DbContext as SCOPED — one per HTTP request —
+//     and hands it the provider to talk to. This single call is what turns
+//     "some C# classes" into "an ORM with a database behind it".
+builder.Services.AddDbContext<TaskFlowDbContext>(options =>
+{
+    options.UseSqlite(connectionString);
+
+    // Development only. Without this, EF logs parameter values as '?' so a
+    // production log file can never leak customer data. With it, you can see
+    // exactly what was sent — which is why it must never ship enabled.
+    if (builder.Environment.IsDevelopment())
+        options.EnableSensitiveDataLogging();
+});
+
 // ---- Register services with the DI container (episode 2.2) ----
-builder.Services.AddSingleton<ITaskService, TaskService>();
+// SCOPED, not Singleton. It depends on the DbContext, and a longer-lived
+// service may not capture a shorter-lived one. Episode 2.2's captive
+// dependency rule stops being theory the moment a real DbContext shows up.
+builder.Services.AddScoped<ITaskService, EfTaskService>();
 
 builder.Services.AddTransient<ITransientOperation, Operation>(); // new every resolution
 builder.Services.AddScoped<IScopedOperation, Operation>();       // one per request

@@ -53,7 +53,8 @@ public record TaskResponse(
     DateOnly? DueDate,
     string Priority,
     DateTimeOffset CreatedAt,
-    string CreatedBy);
+    string CreatedBy,
+    DateTimeOffset? CompletedAt);
 // no InternalNotes. no IsArchived. They cannot leak from a shape that has no
 // room for them.
 
@@ -83,5 +84,6 @@ public static class TaskMapping
     };
 
     public static TaskResponse ToResponse(this TaskItem task) => new(
-        task.Id, task.Title, task.Done, task.DueDate, task.Priority, task.CreatedAt, task.CreatedBy);
+        task.Id, task.Title, task.Done, task.DueDate, task.Priority, task.CreatedAt,
+        task.CreatedBy, task.CompletedAt);
 }

@@ -29,4 +29,8 @@ public record TaskItem
     // ---- internal-only ----
     public string InternalNotes { get; init; } = "";
     public bool IsArchived { get; init; }
+
+    // ---- added in 3.1, by the SECOND migration ----
+    // The moment the task was marked done. Null while it is still open.
+    public DateTimeOffset? CompletedAt { get; init; }
 }
