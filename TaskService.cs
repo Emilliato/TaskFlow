@@ -1,9 +1,12 @@
 namespace TaskFlow;
 
-// The concrete implementation. It owns the in-memory store that used to live
-// inline in Program.cs. Registered as a Singleton, so the same instance — and
-// therefore the same list — is shared by every request. That single shared
-// instance is exactly why a task you POST is still there on the next GET.
+// The IN-MEMORY implementation, from episode 2.2. As of 3.1 it is no longer
+// registered with the container — EfTaskService is — but it is deliberately
+// kept: an implementation of ITaskService that needs no database is exactly
+// what unit tests will want in week 4.
+//
+// It also remains the clearest statement of the problem EF Core solves. The
+// "database" below is a field. When the process exits, so does the data.
 public class TaskService : ITaskService
 {
     private readonly List<TaskItem> _tasks =

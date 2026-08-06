@@ -480,3 +480,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# The development SQLite database is a build artefact, not source.
+*.db
+*.db-shm
+*.db-wal
