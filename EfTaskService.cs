@@ -49,6 +49,15 @@ public class EfTaskService : ITaskService
 
         var updated = input with { Id = id, CreatedAt = existing.CreatedAt };
 
+        // CompletedAt is server-owned, like CreatedAt: it is stamped when the
+        // task flips to done, and cleared if it is reopened.
+        updated = updated with
+        {
+            CompletedAt = updated.Done
+                ? existing.CompletedAt ?? DateTimeOffset.UtcNow
+                : null,
+        };
+
         // Copy the new values onto the tracked entity. The change tracker
         // compares them with the originals and writes an UPDATE containing
         // only the columns whose values are genuinely different.

@@ -44,6 +44,11 @@ public class TaskFlowDbContext : DbContext
         // will show up in the migration as a real CREATE INDEX.
         task.HasIndex(t => t.Done).HasDatabaseName("IX_Tasks_Done");
 
+        // Added after the first migration was already applied. EF will not
+        // rewrite the first migration — it will generate a second one that
+        // carries only the difference.
+        task.HasIndex(t => t.Priority).HasDatabaseName("IX_Tasks_Priority");
+
         // Seed data. This is part of the MODEL, so EF puts it in the migration
         // as INSERT statements — a migration is not only DDL.
         task.HasData(
