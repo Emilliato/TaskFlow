@@ -8,9 +8,16 @@ public class TaskService : ITaskService
 {
     private readonly List<TaskItem> _tasks =
     [
-        new(1, "Set up the Git repo", true),
-        new(2, "Open the first pull request", true),
-        new(3, "Build the REST API", false),
+        new() { Id = 1, Title = "Set up the Git repo", Done = true, Priority = "normal",
+                CreatedAt = new DateTimeOffset(2026, 7, 12, 9, 0, 0, TimeSpan.Zero),
+                CreatedBy = "platform-team", InternalNotes = "billing code OPS-114" },
+        new() { Id = 2, Title = "Open the first pull request", Done = true, Priority = "normal",
+                CreatedAt = new DateTimeOffset(2026, 7, 12, 9, 5, 0, TimeSpan.Zero),
+                CreatedBy = "platform-team", InternalNotes = "billing code OPS-114" },
+        new() { Id = 3, Title = "Build the REST API", Done = false, Priority = "high",
+                DueDate = new DateOnly(2026, 12, 1),
+                CreatedAt = new DateTimeOffset(2026, 7, 12, 9, 30, 0, TimeSpan.Zero),
+                CreatedBy = "platform-team", InternalNotes = "internal: blocked on the DTO refactor" },
     ];
     private int _nextId = 4;
 
@@ -20,7 +27,7 @@ public class TaskService : ITaskService
 
     public TaskItem Add(TaskItem input)
     {
-        var created = input with { Id = _nextId++ };
+        var created = input with { Id = _nextId++, CreatedAt = DateTimeOffset.UtcNow };
         _tasks.Add(created);
         return created;
     }
@@ -29,7 +36,7 @@ public class TaskService : ITaskService
     {
         var index = _tasks.FindIndex(t => t.Id == id);
         if (index < 0) return null;
-        var updated = input with { Id = id };
+        var updated = input with { Id = id, CreatedAt = _tasks[index].CreatedAt };
         _tasks[index] = updated;
         return updated;
     }
