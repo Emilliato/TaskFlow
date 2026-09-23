@@ -30,6 +30,18 @@ public class CreateTaskRequest
     public DateOnly? DueDate { get; set; }
 }
 
+/// <summary>What a client may send to add a comment to a task. Added in 3.2.</summary>
+public class AddCommentRequest
+{
+    [Required(AllowEmptyStrings = false)]
+    [StringLength(60, MinimumLength = 1)]
+    public string Author { get; set; } = "";
+
+    [Required(AllowEmptyStrings = false)]
+    [StringLength(280, MinimumLength = 1)]
+    public string Body { get; set; } = "";
+}
+
 /// <summary>What a client may send to update a task.</summary>
 public class UpdateTaskRequest
 {

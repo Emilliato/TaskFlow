@@ -22,8 +22,15 @@ public class EfTaskService : ITaskService
     // AsNoTracking: this data is read and thrown away, so EF does not need to
     // keep a copy to compare against later. Reads that never turn into writes
     // should say so.
-    public IEnumerable<TaskItem> GetAll() =>
-        _db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToList();
+    //
+    // Changed in 3.2: no more .ToList() here. That call was the whole bug —
+    // it ran the query immediately, inside this method, before a caller ever
+    // got a chance to add a .Where(). Returning the IQueryable itself instead
+    // means the expression tree stays open for composition: whatever a
+    // caller filters on top gets folded into ONE SELECT, not applied in
+    // memory after the fact.
+    public IQueryable<TaskItem> GetAll() =>
+        _db.Tasks.AsNoTracking().OrderBy(t => t.Id);
 
     public TaskItem? GetById(int id) =>
         _db.Tasks.AsNoTracking().FirstOrDefault(t => t.Id == id);
