@@ -23,6 +23,9 @@ public class TaskFlowDbContext : DbContext
     // "SELECT ... FROM Tasks" — but nothing runs until you enumerate it.
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
 
+    // Added in 3.2, for the N+1 demo.
+    public DbSet<TaskComment> Comments => Set<TaskComment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         var task = modelBuilder.Entity<TaskItem>();
@@ -71,5 +74,17 @@ public class TaskFlowDbContext : DbContext
                 CreatedAt = new DateTimeOffset(2026, 7, 12, 9, 30, 0, TimeSpan.Zero),
                 CreatedBy = "platform-team", InternalNotes = "internal: blocked on the DTO refactor",
             });
+
+        // ---- added in 3.2, for the N+1 demo ----
+        var comment = modelBuilder.Entity<TaskComment>();
+        comment.ToTable("TaskComments");
+        comment.HasKey(c => c.Id);
+        comment.Property(c => c.Id).ValueGeneratedOnAdd();
+        comment.Property(c => c.Author).IsRequired().HasMaxLength(60);
+        comment.Property(c => c.Body).IsRequired().HasMaxLength(280);
+
+        // No FK-based navigation property on TaskItem — just an indexed
+        // foreign key column, the same way a hand-written schema would do it.
+        comment.HasIndex(c => c.TaskId).HasDatabaseName("IX_TaskComments_TaskId");
     }
 }

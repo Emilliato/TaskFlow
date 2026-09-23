@@ -274,6 +274,71 @@ app.MapGet("/diag/deferred", (TaskFlowDbContext db) =>
 })
 .WithSummary("Deferred execution: one query variable, enumerated twice, two round trips.");
 
+// ---- Episode 3.2: the N+1 trap ----------------------------------------------
+// A comment, attached to a task by its id. Talking to TaskFlowDbContext
+// directly here (rather than through ITaskService) is deliberate for this one
+// episode: the point is the LINQ itself, not the layer around it.
+app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddCommentRequest request, TaskFlowDbContext db) =>
+    {
+        var comment = new TaskComment
+        {
+            TaskId = id,
+            Author = request.Author,
+            Body = request.Body,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.Comments.Add(comment);
+        db.SaveChanges();
+        return Results.Created($"/tasks/{id}/comments/{comment.Id}", comment);
+    })
+    .WithSummary("Add a comment to a task.");
+
+// The naive version: exactly how this gets written the first time. One query
+// for the tasks, then — inside the loop — one more query PER task to count
+// its comments. N tasks means N+1 queries, and it gets worse every time
+// someone adds a task, not just every time someone adds a comment.
+app.MapGet("/tasks/summary-naive", (TaskFlowDbContext db) =>
+{
+    var tasks = db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToList();          // query 1
+    var summaries = tasks.Select(t => new
+    {
+        t.Id,
+        t.Title,
+        commentCount = db.Comments.Count(c => c.TaskId == t.Id),               // +1 query, per task
+    }).ToList();
+    return Results.Ok(summaries);
+})
+.WithSummary("N+1, on purpose: one query per task to count its comments.");
+
+// The fix: still two round trips total, but the SECOND one is not repeated —
+// it asks for every task's count in one grouped query, then joins the two
+// results together in memory. Constant query count, no matter how many tasks
+// there are. (In the captured log, taskIds.Contains(...) sometimes shows a
+// few more @taskIdsN parameters than there are tasks, with the last value
+// repeated — that is EF Core padding the parameter list to a bucket size so
+// the SAME SQL text can be reused across requests with different list
+// lengths, not a bug. It is still one query either way.)
+app.MapGet("/tasks/summary", (TaskFlowDbContext db) =>
+{
+    var tasks = db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToList();          // query 1
+    var taskIds = tasks.Select(t => t.Id).ToList();
+
+    var counts = db.Comments.AsNoTracking()
+        .Where(c => taskIds.Contains(c.TaskId))
+        .GroupBy(c => c.TaskId)
+        .Select(g => new { TaskId = g.Key, Count = g.Count() })
+        .ToDictionary(g => g.TaskId, g => g.Count);                            // query 2, total
+
+    var summaries = tasks.Select(t => new
+    {
+        t.Id,
+        t.Title,
+        commentCount = counts.GetValueOrDefault(t.Id),
+    }).ToList();
+    return Results.Ok(summaries);
+})
+.WithSummary("The fix: one query for the tasks, one grouped query for every count.");
+
 // The DI lifetime probe from episode 2.2.
 app.MapGet("/diag", (
     ITransientOperation transient,
