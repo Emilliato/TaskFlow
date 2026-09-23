@@ -37,9 +37,20 @@ public class CreateTaskRequestValidator : AbstractValidator<CreateTaskRequest>
             .WithMessage("Due date is more than 90 days out — split the task instead.");
 
         // Stateful: this rule needs the injected service. Attributes cannot.
+        //
+        // Changed in 3.2, and NOT the change this file was built for — this
+        // broke as a side effect of GetAll() becoming an IQueryable. It used
+        // to run fine because tasks.GetAll() was already a List<TaskItem> by
+        // the time .Any() touched it: plain LINQ-to-Objects, any .NET method
+        // allowed. Now .Any() composes onto a live query, and the SQLite
+        // provider has the same objection it had to the search filter:
+        // string.Equals(..., StringComparison) has no SQL translation.
+        // string.ToLower() does — it becomes SQL's lower() — so that is the
+        // rewrite here too. One interface change; two unrelated call sites
+        // that both needed a second look before the SQL they now produce.
         RuleFor(request => request.Title)
             .Must(title => !tasks.GetAll().Any(existing =>
-                string.Equals(existing.Title.Trim(), title.Trim(), StringComparison.OrdinalIgnoreCase)))
+                existing.Title.ToLower() == title.Trim().ToLower()))
             .WithErrorCode("TITLE_ALREADY_EXISTS")
             .WithMessage("A task called '{PropertyValue}' already exists.");
     }

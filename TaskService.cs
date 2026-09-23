@@ -24,7 +24,11 @@ public class TaskService : ITaskService
     ];
     private int _nextId = 4;
 
-    public IEnumerable<TaskItem> GetAll() => _tasks;
+    // AsQueryable() over a List<T> is still LINQ-to-Objects underneath — there
+    // is no SQL to translate to here — but the interface changed in 3.2, so
+    // every implementation of it has to satisfy the same contract. The
+    // compiler is what makes sure this line did not get missed.
+    public IQueryable<TaskItem> GetAll() => _tasks.AsQueryable();
 
     public TaskItem? GetById(int id) => _tasks.FirstOrDefault(t => t.Id == id);
 

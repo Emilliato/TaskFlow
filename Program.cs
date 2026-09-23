@@ -181,8 +181,16 @@ app.MapGet("/tasks", (
         if (done is not null)
             query = query.Where(task => task.Done == done);
 
+        // Changed in 3.2. Title.Contains(search, StringComparison.OrdinalIgnoreCase)
+        // reads fine and ran fine when GetAll() handed back an already-materialized
+        // IEnumerable — LINQ-to-Objects can call any .NET method it likes. Now
+        // that this composes onto a live IQueryable, the SQLite provider has to
+        // translate the expression tree to SQL, and there is no SQL for "call
+        // this specific .NET overload" — it throws InvalidOperationException at
+        // query time instead of silently doing the wrong thing. EF.Functions.Like
+        // is SQL from the start, so there is nothing to translate.
         if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(task => task.Title.Contains(search, StringComparison.OrdinalIgnoreCase));
+            query = query.Where(task => EF.Functions.Like(task.Title, $"%{search}%"));
 
         var results = query.Skip((page - 1) * pageSize).Take(pageSize)
                            .Select(task => task.ToResponse());   // entity -> DTO
@@ -245,6 +253,26 @@ app.MapGet("/admin/stats", (ITaskService svc) =>
     var all = svc.GetAll().ToList();
     return Results.Ok(new { total = all.Count, done = all.Count(t => t.Done), open = all.Count(t => !t.Done) });
 });
+
+// ---- Episode 3.2: deferred execution, on purpose ----------------------------
+// query is an IQueryable — a description of a SELECT, not a result. Building
+// it sends nothing. It only becomes a real round trip to SQLite the moment
+// something enumerates it — and it becomes ANOTHER one every time after that,
+// because nothing here is caching what came back.
+app.MapGet("/diag/deferred", (TaskFlowDbContext db) =>
+{
+    app.Logger.LogInformation("     LINQ      query variable built — nothing sent to the database yet");
+    var query = db.Tasks.AsNoTracking().Where(t => !t.IsArchived);
+
+    app.Logger.LogInformation("     LINQ      first enumeration: query.Count()");
+    var count = query.Count();
+
+    app.Logger.LogInformation("     LINQ      second enumeration: query.ToList() — same query variable");
+    var list = query.ToList();
+
+    return Results.Ok(new { count, returned = list.Count });
+})
+.WithSummary("Deferred execution: one query variable, enumerated twice, two round trips.");
 
 // The DI lifetime probe from episode 2.2.
 app.MapGet("/diag", (
