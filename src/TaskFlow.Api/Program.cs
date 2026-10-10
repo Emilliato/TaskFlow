@@ -26,7 +26,10 @@ var connectionString = builder.Configuration.GetConnectionString("TaskFlow")
 // ONE call plugs in the whole outer layer: the DbContext, SQLite, and the
 // implementations of ITaskRepository / ICommentRepository. The sensitive-data
 // flag is Development only, for the reason it always was.
-builder.Services.AddInfrastructure(connectionString, builder.Environment.IsDevelopment());
+// "Storage" picks the implementation: Sqlite (the default) or InMemory. Nothing
+// above this line of code, and nothing below it, can tell the difference.
+var storage = builder.Configuration["Storage"] ?? "Sqlite";
+builder.Services.AddInfrastructure(connectionString, builder.Environment.IsDevelopment(), storage);
 
 // The application layer: Scoped, because it holds repositories that hold a
 // scoped DbContext (episode 2.2's captive-dependency rule, still in force).
