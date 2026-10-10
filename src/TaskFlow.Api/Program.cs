@@ -1,12 +1,13 @@
-// TaskFlow API — episode 3.1. The endpoints, DTOs, validation and pipeline are
-// exactly what 2.4 left behind. What changed is underneath: ITaskService is no
-// longer a List<TaskItem> in memory, it is EF Core over a SQLite file. Nothing
-// above the interface had to know.
+// TaskFlow API — episode 3.3. This project is now the OUTERMOST, thinnest layer:
+// it turns HTTP into calls on the application layer (TaskService) and turns the
+// answers back into status codes and DTOs. It never touches a DbContext. The
+// only place it meets EF Core at all is the single AddInfrastructure call below.
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using TaskFlow;
+using TaskFlow.Api;
+using TaskFlow.Application;
+using TaskFlow.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,31 +18,22 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "HH:mm:ss.fff ";
 });
 
-// ---- Episode 3.1 ----------------------------------------------------------
-// 0. The connection string lives in configuration, not in code. For SQLite it
-//    is just a file path: one file, no server, no install.
+// ---- Episode 3.3: compose the layers --------------------------------------
+// The connection string lives in configuration, not in code.
 var connectionString = builder.Configuration.GetConnectionString("TaskFlow")
                        ?? "Data Source=taskflow.db";
 
-// 0b. AddDbContext registers the DbContext as SCOPED — one per HTTP request —
-//     and hands it the provider to talk to. This single call is what turns
-//     "some C# classes" into "an ORM with a database behind it".
-builder.Services.AddDbContext<TaskFlowDbContext>(options =>
-{
-    options.UseSqlite(connectionString);
+// ONE call plugs in the whole outer layer: the DbContext, SQLite, and the
+// implementations of ITaskRepository / ICommentRepository. The sensitive-data
+// flag is Development only, for the reason it always was.
+// "Storage" picks the implementation: Sqlite (the default) or InMemory. Nothing
+// above this line of code, and nothing below it, can tell the difference.
+var storage = builder.Configuration["Storage"] ?? "Sqlite";
+builder.Services.AddInfrastructure(connectionString, builder.Environment.IsDevelopment(), storage);
 
-    // Development only. Without this, EF logs parameter values as '?' so a
-    // production log file can never leak customer data. With it, you can see
-    // exactly what was sent — which is why it must never ship enabled.
-    if (builder.Environment.IsDevelopment())
-        options.EnableSensitiveDataLogging();
-});
-
-// ---- Register services with the DI container (episode 2.2) ----
-// SCOPED, not Singleton. It depends on the DbContext, and a longer-lived
-// service may not capture a shorter-lived one. Episode 2.2's captive
-// dependency rule stops being theory the moment a real DbContext shows up.
-builder.Services.AddScoped<ITaskService, EfTaskService>();
+// The application layer: Scoped, because it holds repositories that hold a
+// scoped DbContext (episode 2.2's captive-dependency rule, still in force).
+builder.Services.AddScoped<TaskService>();
 
 builder.Services.AddTransient<ITransientOperation, Operation>(); // new every resolution
 builder.Services.AddScoped<IScopedOperation, Operation>();       // one per request
@@ -168,49 +160,27 @@ app.UseSwaggerUI(options =>                          // -> /swagger
 // Every endpoint below speaks DTOs. The entity never crosses the wire.
 
 app.MapGet("/tasks", (
-        // MODEL BINDING: these come from the query string, by name, converted
-        // to the declared type. Nothing here parses a string by hand.
         [FromQuery] bool? done,
         [FromQuery] string? search,
-        ITaskService svc,
+        TaskService svc,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20) =>
-    {
-        var query = svc.GetAll().Where(task => !task.IsArchived);
-
-        if (done is not null)
-            query = query.Where(task => task.Done == done);
-
-        // Changed in 3.2. Title.Contains(search, StringComparison.OrdinalIgnoreCase)
-        // reads fine and ran fine when GetAll() handed back an already-materialized
-        // IEnumerable — LINQ-to-Objects can call any .NET method it likes. Now
-        // that this composes onto a live IQueryable, the SQLite provider has to
-        // translate the expression tree to SQL, and there is no SQL for "call
-        // this specific .NET overload" — it throws InvalidOperationException at
-        // query time instead of silently doing the wrong thing. EF.Functions.Like
-        // is SQL from the start, so there is nothing to translate.
-        if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(task => EF.Functions.Like(task.Title, $"%{search}%"));
-
-        var results = query.Skip((page - 1) * pageSize).Take(pageSize)
-                           .Select(task => task.ToResponse());   // entity -> DTO
-
-        return Results.Ok(results);
-    })
+        Results.Ok(svc.List(new TaskFilter(done, search, page, pageSize))
+                      .Select(task => task.ToResponse())))
     .WithSummary("List tasks, filtered and paged.");
 
-app.MapGet("/tasks/{id:int}", ([FromRoute] int id, ITaskService svc) =>
-        svc.GetById(id) is { } task ? Results.Ok(task.ToResponse()) : Results.NotFound())
+app.MapGet("/tasks/{id:int}", ([FromRoute] int id, TaskService svc) =>
+        svc.Get(id) is { } task ? Results.Ok(task.ToResponse()) : Results.NotFound())
     .WithSummary("Get one task by id.")
     .Produces<TaskResponse>()
     .Produces(StatusCodes.Status404NotFound);
 
-app.MapPost("/tasks", ([FromBody] CreateTaskRequest request, ITaskService svc) =>
+app.MapPost("/tasks", ([FromBody] CreateTaskRequest request, TaskService svc) =>
     {
         // The request DTO has no Id, no CreatedAt, no CreatedBy, no
         // InternalNotes and no IsArchived — so an over-posted body has nothing
         // to bind to. The server fills those in, here, on its own terms.
-        var created = svc.Add(request.ToEntity(createdBy: "api-client"));
+        var created = svc.Create(request.ToEntity(createdBy: "api-client"));
         return Results.Created($"/tasks/{created.Id}", created.ToResponse());
     })
     .AddEndpointFilter<FluentValidationFilter<CreateTaskRequest>>()
@@ -218,17 +188,47 @@ app.MapPost("/tasks", ([FromBody] CreateTaskRequest request, ITaskService svc) =
     .Produces<TaskResponse>(StatusCodes.Status201Created)
     .ProducesValidationProblem();
 
-app.MapPut("/tasks/{id:int}", ([FromRoute] int id, [FromBody] UpdateTaskRequest request, ITaskService svc) =>
-        svc.GetById(id) is { } existing
+app.MapPut("/tasks/{id:int}", ([FromRoute] int id, [FromBody] UpdateTaskRequest request, TaskService svc) =>
+        svc.Get(id) is { } existing
             ? Results.Ok(svc.Update(id, request.ApplyTo(existing))!.ToResponse())
             : Results.NotFound())
     .WithSummary("Replace a task.")
     .Produces<TaskResponse>()
     .ProducesValidationProblem();
 
-app.MapDelete("/tasks/{id:int}", ([FromRoute] int id, ITaskService svc) =>
+app.MapDelete("/tasks/{id:int}", ([FromRoute] int id, TaskService svc) =>
         svc.Delete(id) ? Results.NoContent() : Results.NotFound())
     .WithSummary("Delete a task.");
+
+// Guarded by the gate middleware above: /admin/* needs the X-Api-Key header.
+app.MapGet("/admin/stats", (TaskService svc) => Results.Ok(svc.GetStats()));
+
+// ---- Comments: the endpoint that used to write straight to the DbContext ----
+// Look at what is left. Ask the application layer; translate its answer into
+// HTTP. The rule itself (does the task exist? is it archived?) lives in
+// TaskService.AddComment, where a unit test can reach it without a web server.
+app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddCommentRequest request, TaskService svc) =>
+    {
+        var result = svc.AddComment(id, request.Author, request.Body);
+        return result.Outcome switch
+        {
+            CommentOutcome.Added => Results.Created(
+                $"/tasks/{id}/comments/{result.Comment!.Id}", result.Comment.ToResponse()),
+            CommentOutcome.TaskNotFound => Results.Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Task not found.",
+                detail: $"There is no task {id} to comment on."),
+            _ => Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Task is archived.",
+                detail: $"Task {id} is archived and no longer accepts comments."),
+        };
+    })
+    .WithSummary("Add a comment to a task.");
+
+// The N+1 fix from 3.2, now one line of HTTP over one use case.
+app.MapGet("/tasks/summary", (TaskService svc) => Results.Ok(svc.GetCommentSummary()))
+    .WithSummary("Every task with its comment count, in two queries total.");
 
 // A diagnostic endpoint whose only job is to report WHERE each argument came
 // from. Model binding fills all five from completely different places.
@@ -237,7 +237,7 @@ app.MapPost("/binding/{id:int}", (
         [FromQuery] string? note,
         [FromHeader(Name = "X-Api-Key")] string? apiKey,
         [FromBody] CreateTaskRequest body,
-        ITaskService svc) => Results.Ok(new
+        TaskService svc) => Results.Ok(new
     {
         fromRoute = id,
         fromQuery = note,
@@ -246,98 +246,6 @@ app.MapPost("/binding/{id:int}", (
         fromServices = svc.GetType().Name,
     }))
     .WithSummary("Show where each bound argument came from.");
-
-// Guarded by the gate middleware above: /admin/* needs the X-Api-Key header.
-app.MapGet("/admin/stats", (ITaskService svc) =>
-{
-    var all = svc.GetAll().ToList();
-    return Results.Ok(new { total = all.Count, done = all.Count(t => t.Done), open = all.Count(t => !t.Done) });
-});
-
-// ---- Episode 3.2: deferred execution, on purpose ----------------------------
-// query is an IQueryable — a description of a SELECT, not a result. Building
-// it sends nothing. It only becomes a real round trip to SQLite the moment
-// something enumerates it — and it becomes ANOTHER one every time after that,
-// because nothing here is caching what came back.
-app.MapGet("/diag/deferred", (TaskFlowDbContext db) =>
-{
-    app.Logger.LogInformation("     LINQ      query variable built — nothing sent to the database yet");
-    var query = db.Tasks.AsNoTracking().Where(t => !t.IsArchived);
-
-    app.Logger.LogInformation("     LINQ      first enumeration: query.Count()");
-    var count = query.Count();
-
-    app.Logger.LogInformation("     LINQ      second enumeration: query.ToList() — same query variable");
-    var list = query.ToList();
-
-    return Results.Ok(new { count, returned = list.Count });
-})
-.WithSummary("Deferred execution: one query variable, enumerated twice, two round trips.");
-
-// ---- Episode 3.2: the N+1 trap ----------------------------------------------
-// A comment, attached to a task by its id. Talking to TaskFlowDbContext
-// directly here (rather than through ITaskService) is deliberate for this one
-// episode: the point is the LINQ itself, not the layer around it.
-app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddCommentRequest request, TaskFlowDbContext db) =>
-    {
-        var comment = new TaskComment
-        {
-            TaskId = id,
-            Author = request.Author,
-            Body = request.Body,
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-        db.Comments.Add(comment);
-        db.SaveChanges();
-        return Results.Created($"/tasks/{id}/comments/{comment.Id}", comment);
-    })
-    .WithSummary("Add a comment to a task.");
-
-// The naive version: exactly how this gets written the first time. One query
-// for the tasks, then — inside the loop — one more query PER task to count
-// its comments. N tasks means N+1 queries, and it gets worse every time
-// someone adds a task, not just every time someone adds a comment.
-app.MapGet("/tasks/summary-naive", (TaskFlowDbContext db) =>
-{
-    var tasks = db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToList();          // query 1
-    var summaries = tasks.Select(t => new
-    {
-        t.Id,
-        t.Title,
-        commentCount = db.Comments.Count(c => c.TaskId == t.Id),               // +1 query, per task
-    }).ToList();
-    return Results.Ok(summaries);
-})
-.WithSummary("N+1, on purpose: one query per task to count its comments.");
-
-// The fix: still two round trips total, but the SECOND one is not repeated —
-// it asks for every task's count in one grouped query, then joins the two
-// results together in memory. Constant query count, no matter how many tasks
-// there are. (In the captured log, taskIds.Contains(...) sometimes shows a
-// few more @taskIdsN parameters than there are tasks, with the last value
-// repeated — that is EF Core padding the parameter list to a bucket size so
-// the SAME SQL text can be reused across requests with different list
-// lengths, not a bug. It is still one query either way.)
-app.MapGet("/tasks/summary", (TaskFlowDbContext db) =>
-{
-    var tasks = db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToList();          // query 1
-    var taskIds = tasks.Select(t => t.Id).ToList();
-
-    var counts = db.Comments.AsNoTracking()
-        .Where(c => taskIds.Contains(c.TaskId))
-        .GroupBy(c => c.TaskId)
-        .Select(g => new { TaskId = g.Key, Count = g.Count() })
-        .ToDictionary(g => g.TaskId, g => g.Count);                            // query 2, total
-
-    var summaries = tasks.Select(t => new
-    {
-        t.Id,
-        t.Title,
-        commentCount = counts.GetValueOrDefault(t.Id),
-    }).ToList();
-    return Results.Ok(summaries);
-})
-.WithSummary("The fix: one query for the tasks, one grouped query for every count.");
 
 // The DI lifetime probe from episode 2.2.
 app.MapGet("/diag", (
@@ -362,7 +270,7 @@ app.MapGet("/diag", (
 
 // A deliberate failure raised from an ENDPOINT: a task that does not exist,
 // dereferenced anyway. Exactly the kind of bug that reaches production.
-app.MapGet("/diag/boom", (ITaskService svc) => Results.Ok(svc.GetById(999)!.Title));
+app.MapGet("/diag/boom", (TaskService svc) => Results.Ok(svc.Get(999)!.Title));
 
 app.Run();
 

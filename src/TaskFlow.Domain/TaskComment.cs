@@ -1,4 +1,4 @@
-namespace TaskFlow;
+namespace TaskFlow.Domain;
 
 // A second real table, added for episode 3.2's N+1 demo: every task can have
 // zero or more comments. Deliberately NO navigation property on TaskItem —

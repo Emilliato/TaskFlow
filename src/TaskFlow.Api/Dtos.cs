@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using TaskFlow.Domain;
 
-namespace TaskFlow;
+namespace TaskFlow.Api;
 
 // ============================ THE DTOs =====================================
 // A DTO — Data Transfer Object — is a type whose only job is to describe what
@@ -67,6 +68,9 @@ public record TaskResponse(
     DateTimeOffset CreatedAt,
     string CreatedBy,
     DateTimeOffset? CompletedAt);
+/// <summary>What TaskFlow returns for a comment.</summary>
+public record CommentResponse(int Id, int TaskId, string Author, string Body, DateTimeOffset CreatedAt);
+
 // no InternalNotes. no IsArchived. They cannot leak from a shape that has no
 // room for them.
 
@@ -94,6 +98,9 @@ public static class TaskMapping
         Priority = request.Priority,
         DueDate = request.DueDate,
     };
+
+    public static CommentResponse ToResponse(this TaskComment c) =>
+        new(c.Id, c.TaskId, c.Author, c.Body, c.CreatedAt);
 
     public static TaskResponse ToResponse(this TaskItem task) => new(
         task.Id, task.Title, task.Done, task.DueDate, task.Priority, task.CreatedAt,

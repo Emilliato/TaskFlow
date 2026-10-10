@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace TaskFlow;
+namespace TaskFlow.Api;
 
 // ---------------------------------------------------------------------------
 // A middleware is just a class with:

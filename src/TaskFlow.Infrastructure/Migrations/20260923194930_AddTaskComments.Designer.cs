@@ -4,11 +4,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using TaskFlow;
+using TaskFlow.Infrastructure;
 
 #nullable disable
 
-namespace TaskFlow.Migrations
+namespace TaskFlow.Infrastructure.Migrations
 {
     [DbContext(typeof(TaskFlowDbContext))]
     [Migration("20260923194930_AddTaskComments")]
@@ -20,7 +20,7 @@ namespace TaskFlow.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
 
-            modelBuilder.Entity("TaskFlow.TaskComment", b =>
+            modelBuilder.Entity("TaskFlow.Domain.TaskComment", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -50,7 +50,7 @@ namespace TaskFlow.Migrations
                     b.ToTable("TaskComments", (string)null);
                 });
 
-            modelBuilder.Entity("TaskFlow.TaskItem", b =>
+            modelBuilder.Entity("TaskFlow.Domain.TaskItem", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()

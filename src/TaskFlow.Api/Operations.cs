@@ -1,4 +1,4 @@
-namespace TaskFlow;
+namespace TaskFlow.Api;
 
 // A tiny marker service whose whole job is to make service lifetimes VISIBLE.
 // Each instance stamps itself with a fresh Guid at construction time, so if two

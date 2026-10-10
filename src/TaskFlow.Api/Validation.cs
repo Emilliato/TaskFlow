@@ -1,8 +1,9 @@
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Mvc;
+using TaskFlow.Application;
 
-namespace TaskFlow;
+namespace TaskFlow.Api;
 
 // ======================= LAYER 2: FluentValidation =========================
 // Data annotations answer "is this field well formed?" — they are attributes
@@ -10,12 +11,12 @@ namespace TaskFlow;
 // local: they compare two fields, or they need to ask a service something.
 //
 // A FluentValidation validator is an ordinary class, so it can take
-// ITaskService in its constructor and go and look. That is the difference,
+// TaskService in its constructor and go and look. That is the difference,
 // not the syntax.
 // ===========================================================================
 public class CreateTaskRequestValidator : AbstractValidator<CreateTaskRequest>
 {
-    public CreateTaskRequestValidator(ITaskService tasks)
+    public CreateTaskRequestValidator(TaskService tasks)
     {
         // Cross-field: a rule about the relationship BETWEEN two properties.
         // No single attribute can express this, because an attribute only ever
@@ -37,20 +38,11 @@ public class CreateTaskRequestValidator : AbstractValidator<CreateTaskRequest>
             .WithMessage("Due date is more than 90 days out — split the task instead.");
 
         // Stateful: this rule needs the injected service. Attributes cannot.
-        //
-        // Changed in 3.2, and NOT the change this file was built for — this
-        // broke as a side effect of GetAll() becoming an IQueryable. It used
-        // to run fine because tasks.GetAll() was already a List<TaskItem> by
-        // the time .Any() touched it: plain LINQ-to-Objects, any .NET method
-        // allowed. Now .Any() composes onto a live query, and the SQLite
-        // provider has the same objection it had to the search filter:
-        // string.Equals(..., StringComparison) has no SQL translation.
-        // string.ToLower() does — it becomes SQL's lower() — so that is the
-        // rewrite here too. One interface change; two unrelated call sites
-        // that both needed a second look before the SQL they now produce.
+        // Since 3.3 it asks the application layer, in plain C#: how the
+        // lookup becomes SQL (the ToLower() rewrite from 3.2) is now
+        // Infrastructure's problem, not this file's.
         RuleFor(request => request.Title)
-            .Must(title => !tasks.GetAll().Any(existing =>
-                existing.Title.ToLower() == title.Trim().ToLower()))
+            .Must(title => !tasks.TitleExists(title))
             .WithErrorCode("TITLE_ALREADY_EXISTS")
             .WithMessage("A task called '{PropertyValue}' already exists.");
     }

@@ -1,4 +1,4 @@
-namespace TaskFlow;
+namespace TaskFlow.Domain;
 
 // The ENTITY: TaskFlow's own model of a task.
 //
@@ -33,4 +33,9 @@ public record TaskItem
     // ---- added in 3.1, by the SECOND migration ----
     // The moment the task was marked done. Null while it is still open.
     public DateTimeOffset? CompletedAt { get; init; }
+
+    // ---- a business rule, owned by the thing it is a rule ABOUT ----
+    // An archived task is closed for discussion. No database, no HTTP, no
+    // framework: just a fact about a task, which is why it lives here.
+    public bool AcceptsComments => !IsArchived;
 }

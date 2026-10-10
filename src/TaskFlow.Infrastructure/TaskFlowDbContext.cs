@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using TaskFlow.Domain;
 
-namespace TaskFlow;
+namespace TaskFlow.Infrastructure;
 
 // The DbContext: TaskFlow's session with the database.
 //
