@@ -43,6 +43,9 @@ builder.Services.AddDbContext<TaskFlowDbContext>(options =>
 // dependency rule stops being theory the moment a real DbContext shows up.
 builder.Services.AddScoped<ITaskService, EfTaskService>();
 
+// Episode 3.4: a stand-in for an outbound HTTP call that takes 300 ms.
+builder.Services.AddSingleton<IWebhookGateway, SlowWebhookGateway>();
+
 builder.Services.AddTransient<ITransientOperation, Operation>(); // new every resolution
 builder.Services.AddScoped<IScopedOperation, Operation>();       // one per request
 builder.Services.AddSingleton<ISingletonOperation, Operation>(); // one forever
@@ -338,6 +341,10 @@ app.MapGet("/tasks/summary", (TaskFlowDbContext db) =>
     return Results.Ok(summaries);
 })
 .WithSummary("The fix: one query for the tasks, one grouped query for every count.");
+
+// Episode 3.4: blocking vs awaiting the same slow call.
+app.MapAsyncDemo();
+AsyncDemo.StartPoolMonitor(app.Services.GetRequiredService<ILoggerFactory>());
 
 // The DI lifetime probe from episode 2.2.
 app.MapGet("/diag", (
