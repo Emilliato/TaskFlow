@@ -30,23 +30,25 @@ public class TaskService : ITaskService
     // compiler is what makes sure this line did not get missed.
     public IQueryable<TaskItem> GetAll() => _tasks.AsQueryable();
 
-    public TaskItem? GetById(int id) => _tasks.FirstOrDefault(t => t.Id == id);
+    public Task<TaskItem?> GetByIdAsync(int id, CancellationToken ct = default) =>
+        Task.FromResult(_tasks.FirstOrDefault(t => t.Id == id));
 
-    public TaskItem Add(TaskItem input)
+    public Task<TaskItem> AddAsync(TaskItem input, CancellationToken ct = default)
     {
         var created = input with { Id = _nextId++, CreatedAt = DateTimeOffset.UtcNow };
         _tasks.Add(created);
-        return created;
+        return Task.FromResult(created);
     }
 
-    public TaskItem? Update(int id, TaskItem input)
+    public Task<TaskItem?> UpdateAsync(int id, TaskItem input, CancellationToken ct = default)
     {
         var index = _tasks.FindIndex(t => t.Id == id);
-        if (index < 0) return null;
+        if (index < 0) return Task.FromResult<TaskItem?>(null);
         var updated = input with { Id = id, CreatedAt = _tasks[index].CreatedAt };
         _tasks[index] = updated;
-        return updated;
+        return Task.FromResult<TaskItem?>(updated);
     }
 
-    public bool Delete(int id) => _tasks.RemoveAll(t => t.Id == id) > 0;
+    public Task<bool> DeleteAsync(int id, CancellationToken ct = default) =>
+        Task.FromResult(_tasks.RemoveAll(t => t.Id == id) > 0);
 }
