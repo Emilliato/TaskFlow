@@ -74,6 +74,40 @@ public static class AsyncDemo
             return Results.Ok(new { sent = true });
         });
 #pragma warning restore CS4014
+
+        // MISTAKE 4: Task.Run around blocking work only MOVES the blocked thread.
+        // The call looks async and returns a Task, but a pool thread still sits
+        // in Thread.Sleep for the whole 300 ms.
+        app.MapGet("/demo/fake-async/{id}", async (string id) =>
+        {
+            var receipt = await Task.Run(() =>
+            {
+                Thread.Sleep(300);
+                return $"delivered:task-{id}";
+            });
+            return Results.Ok(new { receipt });
+        });
+
+        // ---- A Task is a value you can hold ---------------------------------
+
+        // Three independent calls, awaited one after another: 3 x 300 ms.
+        app.MapGet("/demo/fan-out/sequential/{id}", async (string id, IWebhookGateway gateway, CancellationToken ct) =>
+        {
+            var a = await gateway.SendAsync($"a-{id}", ct);
+            var b = await gateway.SendAsync($"b-{id}", ct);
+            var c = await gateway.SendAsync($"c-{id}", ct);
+            return Results.Ok(new { a, b, c });
+        });
+
+        // The same three calls, started together and awaited together: about 300 ms.
+        app.MapGet("/demo/fan-out/parallel/{id}", async (string id, IWebhookGateway gateway, CancellationToken ct) =>
+        {
+            var a = gateway.SendAsync($"a-{id}", ct);   // started, not awaited yet
+            var b = gateway.SendAsync($"b-{id}", ct);
+            var c = gateway.SendAsync($"c-{id}", ct);
+            await Task.WhenAll(a, b, c);
+            return Results.Ok(new { a = await a, b = await b, c = await c });
+        });
     }
 
     static async void NotifyAndForget(IWebhookGateway gateway, string payload) =>
