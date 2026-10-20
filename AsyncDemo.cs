@@ -43,7 +43,44 @@ public static class AsyncDemo
                 Environment.CurrentManagedThreadId);
             return Results.Ok(new { receipt });
         });
+
+        // ---- Two more ways to get async wrong ------------------------------
+
+        // MISTAKE 2: async void. Nobody can await it, so an exception inside it
+        // has no caller to travel to. It is raised on the thread pool instead,
+        // and an unhandled exception there ends the process.
+        app.MapGet("/demo/async-void/{id}", (string id, IWebhookGateway gateway) =>
+        {
+            NotifyAndForget(gateway, $"task-{id}");
+            return Results.Accepted();
+        });
+
+        // THE FIX: return Task, and await it. The failure travels back to the
+        // request, where the pipeline turns it into a 500 and the server lives on.
+        app.MapGet("/demo/async-task/{id}", async (string id, IWebhookGateway gateway) =>
+        {
+            await NotifyAsync(gateway, $"task-{id}");
+            return Results.Accepted();
+        });
+
+        // MISTAKE 3: the call is made but never awaited. The response goes out
+        // while the work is still running, and a failure is never seen by anyone.
+        // (The compiler warns about exactly this: CS4014. Silenced here only
+        // because this endpoint exists to be wrong.)
+#pragma warning disable CS4014
+        app.MapGet("/demo/forgot-await/{id}", async (string id, IWebhookGateway gateway) =>
+        {
+            gateway.SendAsync($"task-{id}");
+            return Results.Ok(new { sent = true });
+        });
+#pragma warning restore CS4014
     }
+
+    static async void NotifyAndForget(IWebhookGateway gateway, string payload) =>
+        await gateway.SendAsync(payload);
+
+    static async Task NotifyAsync(IWebhookGateway gateway, string payload) =>
+        await gateway.SendAsync(payload);
 
     // Samples the thread pool from its OWN thread (not a pool thread), so the
     // numbers keep flowing even while the pool is starved.
