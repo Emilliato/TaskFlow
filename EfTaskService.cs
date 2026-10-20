@@ -11,8 +11,8 @@ namespace TaskFlow;
 // no hand-written SQL. That is the ORM's job. What IS here is LINQ over
 // DbSet<TaskItem>, and a SaveChanges() to commit.
 //
-// Everything below is synchronous, deliberately: it keeps this episode about
-// the ORM. Episode 3.4 is where all of this grows an Async suffix and a Task.
+// Changed in 3.4: every method that touches the database is async. Each one
+// grew an Async suffix, a Task<T> return type, and an await.
 public class EfTaskService : ITaskService
 {
     private readonly TaskFlowDbContext _db;
@@ -32,10 +32,10 @@ public class EfTaskService : ITaskService
     public IQueryable<TaskItem> GetAll() =>
         _db.Tasks.AsNoTracking().OrderBy(t => t.Id);
 
-    public TaskItem? GetById(int id) =>
-        _db.Tasks.AsNoTracking().FirstOrDefault(t => t.Id == id);
+    public Task<TaskItem?> GetByIdAsync(int id, CancellationToken ct = default) =>
+        _db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct);
 
-    public TaskItem Add(TaskItem input)
+    public async Task<TaskItem> AddAsync(TaskItem input, CancellationToken ct = default)
     {
         // No Id is set here. The column is INTEGER PRIMARY KEY AUTOINCREMENT's
         // cousin in SQLite, and EF reads the generated value back into the
@@ -43,15 +43,15 @@ public class EfTaskService : ITaskService
         var created = input with { CreatedAt = DateTimeOffset.UtcNow };
 
         _db.Tasks.Add(created);   // change tracker: state = Added
-        _db.SaveChanges();        // one INSERT, inside a transaction
+        await _db.SaveChangesAsync(ct);   // one INSERT, inside a transaction
         return created;
     }
 
-    public TaskItem? Update(int id, TaskItem input)
+    public async Task<TaskItem?> UpdateAsync(int id, TaskItem input, CancellationToken ct = default)
     {
         // Tracked on purpose this time: EF has to hold the ORIGINAL values to
         // work out which columns actually changed.
-        var existing = _db.Tasks.FirstOrDefault(t => t.Id == id);
+        var existing = await _db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (existing is null) return null;
 
         var updated = input with { Id = id, CreatedAt = existing.CreatedAt };
@@ -69,17 +69,17 @@ public class EfTaskService : ITaskService
         // compares them with the originals and writes an UPDATE containing
         // only the columns whose values are genuinely different.
         _db.Entry(existing).CurrentValues.SetValues(updated);
-        _db.SaveChanges();
+        await _db.SaveChangesAsync(ct);
         return existing;
     }
 
-    public bool Delete(int id)
+    public async Task<bool> DeleteAsync(int id, CancellationToken ct = default)
     {
-        var existing = _db.Tasks.FirstOrDefault(t => t.Id == id);
+        var existing = await _db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (existing is null) return false;
 
         _db.Tasks.Remove(existing);
-        _db.SaveChanges();
+        await _db.SaveChangesAsync(ct);
         return true;
     }
 }

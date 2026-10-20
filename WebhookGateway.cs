@@ -9,13 +9,24 @@ public interface IWebhookGateway
     Task<string> SendAsync(string payload, CancellationToken cancellationToken = default);
 }
 
-public class SlowWebhookGateway : IWebhookGateway
+public class SlowWebhookGateway(ILogger<SlowWebhookGateway> logger) : IWebhookGateway
 {
     public async Task<string> SendAsync(string payload, CancellationToken cancellationToken = default)
     {
-        // Stands in for a 300 ms network round trip. Task.Delay is a timer,
-        // not a thread sitting in a loop: while it runs, no thread is used.
-        await Task.Delay(300, cancellationToken);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            // Stands in for a 300 ms network round trip. Task.Delay is a timer,
+            // not a thread sitting in a loop: while it runs, no thread is used.
+            await Task.Delay(300, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // The caller gave up (a client disconnect trips the token). Stop paying for work nobody wants.
+            logger.LogInformation("CANCEL  webhook '{Payload}' abandoned after {Ms:F0} ms",
+                payload, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            throw;
+        }
 
         if (payload.Contains("bad"))
             throw new InvalidOperationException($"Webhook rejected '{payload}' (HTTP 502).");

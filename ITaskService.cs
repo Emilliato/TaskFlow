@@ -12,9 +12,14 @@ public interface ITaskService
     // query that has not run yet: a caller composing .Where() onto it is
     // still building the SAME query, so it becomes part of the one SQL
     // statement the database eventually receives.
+    //
+    // Changed in 3.4: everything that TALKS to the database now returns a Task.
+    // GetAll() does not: it only builds a description of a query, so there is
+    // nothing to wait for yet. The wait starts when someone runs it, with
+    // ToListAsync().
     IQueryable<TaskItem> GetAll();
-    TaskItem? GetById(int id);
-    TaskItem Add(TaskItem input);
-    TaskItem? Update(int id, TaskItem input);
-    bool Delete(int id);
+    Task<TaskItem?> GetByIdAsync(int id, CancellationToken ct = default);
+    Task<TaskItem> AddAsync(TaskItem input, CancellationToken ct = default);
+    Task<TaskItem?> UpdateAsync(int id, TaskItem input, CancellationToken ct = default);
+    Task<bool> DeleteAsync(int id, CancellationToken ct = default);
 }

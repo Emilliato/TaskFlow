@@ -170,12 +170,13 @@ app.UseSwaggerUI(options =>                          // -> /swagger
 // =====================  ENDPOINTS (terminal middleware)  ===================
 // Every endpoint below speaks DTOs. The entity never crosses the wire.
 
-app.MapGet("/tasks", (
+app.MapGet("/tasks", async (
         // MODEL BINDING: these come from the query string, by name, converted
         // to the declared type. Nothing here parses a string by hand.
         [FromQuery] bool? done,
         [FromQuery] string? search,
         ITaskService svc,
+        CancellationToken ct,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20) =>
     {
@@ -195,25 +196,29 @@ app.MapGet("/tasks", (
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(task => EF.Functions.Like(task.Title, $"%{search}%"));
 
-        var results = query.Skip((page - 1) * pageSize).Take(pageSize)
-                           .Select(task => task.ToResponse());   // entity -> DTO
+        // Changed in 3.4: the query runs HERE, asynchronously. Before, it was
+        // handed to Results.Ok() un-run and got enumerated by the JSON writer,
+        // synchronously, at the very end.
+        var results = await query.Skip((page - 1) * pageSize).Take(pageSize)
+                                 .Select(task => task.ToResponse())   // entity -> DTO
+                                 .ToListAsync(ct);
 
         return Results.Ok(results);
     })
     .WithSummary("List tasks, filtered and paged.");
 
-app.MapGet("/tasks/{id:int}", ([FromRoute] int id, ITaskService svc) =>
-        svc.GetById(id) is { } task ? Results.Ok(task.ToResponse()) : Results.NotFound())
+app.MapGet("/tasks/{id:int}", async ([FromRoute] int id, ITaskService svc, CancellationToken ct) =>
+        await svc.GetByIdAsync(id, ct) is { } task ? Results.Ok(task.ToResponse()) : Results.NotFound())
     .WithSummary("Get one task by id.")
     .Produces<TaskResponse>()
     .Produces(StatusCodes.Status404NotFound);
 
-app.MapPost("/tasks", ([FromBody] CreateTaskRequest request, ITaskService svc) =>
+app.MapPost("/tasks", async ([FromBody] CreateTaskRequest request, ITaskService svc, CancellationToken ct) =>
     {
         // The request DTO has no Id, no CreatedAt, no CreatedBy, no
         // InternalNotes and no IsArchived — so an over-posted body has nothing
         // to bind to. The server fills those in, here, on its own terms.
-        var created = svc.Add(request.ToEntity(createdBy: "api-client"));
+        var created = await svc.AddAsync(request.ToEntity(createdBy: "api-client"), ct);
         return Results.Created($"/tasks/{created.Id}", created.ToResponse());
     })
     .AddEndpointFilter<FluentValidationFilter<CreateTaskRequest>>()
@@ -221,16 +226,16 @@ app.MapPost("/tasks", ([FromBody] CreateTaskRequest request, ITaskService svc) =
     .Produces<TaskResponse>(StatusCodes.Status201Created)
     .ProducesValidationProblem();
 
-app.MapPut("/tasks/{id:int}", ([FromRoute] int id, [FromBody] UpdateTaskRequest request, ITaskService svc) =>
-        svc.GetById(id) is { } existing
-            ? Results.Ok(svc.Update(id, request.ApplyTo(existing))!.ToResponse())
+app.MapPut("/tasks/{id:int}", async ([FromRoute] int id, [FromBody] UpdateTaskRequest request, ITaskService svc, CancellationToken ct) =>
+        await svc.GetByIdAsync(id, ct) is { } existing
+            ? Results.Ok((await svc.UpdateAsync(id, request.ApplyTo(existing), ct))!.ToResponse())
             : Results.NotFound())
     .WithSummary("Replace a task.")
     .Produces<TaskResponse>()
     .ProducesValidationProblem();
 
-app.MapDelete("/tasks/{id:int}", ([FromRoute] int id, ITaskService svc) =>
-        svc.Delete(id) ? Results.NoContent() : Results.NotFound())
+app.MapDelete("/tasks/{id:int}", async ([FromRoute] int id, ITaskService svc, CancellationToken ct) =>
+        await svc.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound())
     .WithSummary("Delete a task.");
 
 // A diagnostic endpoint whose only job is to report WHERE each argument came
@@ -251,9 +256,9 @@ app.MapPost("/binding/{id:int}", (
     .WithSummary("Show where each bound argument came from.");
 
 // Guarded by the gate middleware above: /admin/* needs the X-Api-Key header.
-app.MapGet("/admin/stats", (ITaskService svc) =>
+app.MapGet("/admin/stats", async (ITaskService svc, CancellationToken ct) =>
 {
-    var all = svc.GetAll().ToList();
+    var all = await svc.GetAll().ToListAsync(ct);
     return Results.Ok(new { total = all.Count, done = all.Count(t => t.Done), open = all.Count(t => !t.Done) });
 });
 
@@ -262,16 +267,16 @@ app.MapGet("/admin/stats", (ITaskService svc) =>
 // it sends nothing. It only becomes a real round trip to SQLite the moment
 // something enumerates it — and it becomes ANOTHER one every time after that,
 // because nothing here is caching what came back.
-app.MapGet("/diag/deferred", (TaskFlowDbContext db) =>
+app.MapGet("/diag/deferred", async (TaskFlowDbContext db, CancellationToken ct) =>
 {
     app.Logger.LogInformation("     LINQ      query variable built — nothing sent to the database yet");
     var query = db.Tasks.AsNoTracking().Where(t => !t.IsArchived);
 
     app.Logger.LogInformation("     LINQ      first enumeration: query.Count()");
-    var count = query.Count();
+    var count = await query.CountAsync(ct);
 
     app.Logger.LogInformation("     LINQ      second enumeration: query.ToList() — same query variable");
-    var list = query.ToList();
+    var list = await query.ToListAsync(ct);
 
     return Results.Ok(new { count, returned = list.Count });
 })
@@ -281,7 +286,7 @@ app.MapGet("/diag/deferred", (TaskFlowDbContext db) =>
 // A comment, attached to a task by its id. Talking to TaskFlowDbContext
 // directly here (rather than through ITaskService) is deliberate for this one
 // episode: the point is the LINQ itself, not the layer around it.
-app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddCommentRequest request, TaskFlowDbContext db) =>
+app.MapPost("/tasks/{id:int}/comments", async ([FromRoute] int id, [FromBody] AddCommentRequest request, TaskFlowDbContext db, CancellationToken ct) =>
     {
         var comment = new TaskComment
         {
@@ -291,7 +296,7 @@ app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddComme
             CreatedAt = DateTimeOffset.UtcNow,
         };
         db.Comments.Add(comment);
-        db.SaveChanges();
+        await db.SaveChangesAsync(ct);
         return Results.Created($"/tasks/{id}/comments/{comment.Id}", comment);
     })
     .WithSummary("Add a comment to a task.");
@@ -300,15 +305,15 @@ app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddComme
 // for the tasks, then — inside the loop — one more query PER task to count
 // its comments. N tasks means N+1 queries, and it gets worse every time
 // someone adds a task, not just every time someone adds a comment.
-app.MapGet("/tasks/summary-naive", (TaskFlowDbContext db) =>
+app.MapGet("/tasks/summary-naive", async (TaskFlowDbContext db, CancellationToken ct) =>
 {
-    var tasks = db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToList();          // query 1
-    var summaries = tasks.Select(t => new
+    var tasks = await db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToListAsync(ct);   // query 1
+    var summaries = new List<object>();
+    foreach (var t in tasks)
     {
-        t.Id,
-        t.Title,
-        commentCount = db.Comments.Count(c => c.TaskId == t.Id),               // +1 query, per task
-    }).ToList();
+        var commentCount = await db.Comments.CountAsync(c => c.TaskId == t.Id, ct); // +1 query, per task
+        summaries.Add(new { t.Id, t.Title, commentCount });
+    }
     return Results.Ok(summaries);
 })
 .WithSummary("N+1, on purpose: one query per task to count its comments.");
@@ -321,16 +326,16 @@ app.MapGet("/tasks/summary-naive", (TaskFlowDbContext db) =>
 // repeated — that is EF Core padding the parameter list to a bucket size so
 // the SAME SQL text can be reused across requests with different list
 // lengths, not a bug. It is still one query either way.)
-app.MapGet("/tasks/summary", (TaskFlowDbContext db) =>
+app.MapGet("/tasks/summary", async (TaskFlowDbContext db, CancellationToken ct) =>
 {
-    var tasks = db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToList();          // query 1
+    var tasks = await db.Tasks.AsNoTracking().OrderBy(t => t.Id).ToListAsync(ct);   // query 1
     var taskIds = tasks.Select(t => t.Id).ToList();
 
-    var counts = db.Comments.AsNoTracking()
+    var counts = await db.Comments.AsNoTracking()
         .Where(c => taskIds.Contains(c.TaskId))
         .GroupBy(c => c.TaskId)
         .Select(g => new { TaskId = g.Key, Count = g.Count() })
-        .ToDictionary(g => g.TaskId, g => g.Count);                            // query 2, total
+        .ToDictionaryAsync(g => g.TaskId, g => g.Count, ct);                   // query 2, total
 
     var summaries = tasks.Select(t => new
     {
@@ -369,7 +374,7 @@ app.MapGet("/diag", (
 
 // A deliberate failure raised from an ENDPOINT: a task that does not exist,
 // dereferenced anyway. Exactly the kind of bug that reaches production.
-app.MapGet("/diag/boom", (ITaskService svc) => Results.Ok(svc.GetById(999)!.Title));
+app.MapGet("/diag/boom", async (ITaskService svc) => Results.Ok((await svc.GetByIdAsync(999))!.Title));
 
 app.Run();
 
