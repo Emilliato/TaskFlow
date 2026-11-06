@@ -1,54 +1,49 @@
-using Moq;
 using TaskFlow.Application;
 using TaskFlow.Domain;
 
 namespace TaskFlow.Application.Tests;
 
-// The comment rule, tested with Moq: no hand-written fakes to maintain.
 public class AddCommentTests
 {
-    [Fact]
-    public void AddComment_on_a_missing_task_is_rejected()
+    // A [Theory] runs the same test body once per [InlineData] row.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(999)]
+    public void Comment_on_a_task_that_does_not_exist_is_rejected_and_nothing_is_stored(int taskId)
     {
-        var tasks = new Mock<ITaskRepository>();
-        var comments = new Mock<ICommentRepository>();
-        tasks.Setup(t => t.GetById(It.IsAny<int>())).Returns((TaskItem?)null);
-        comments.Setup(c => c.Add(It.IsAny<TaskComment>())).Returns(new TaskComment { Id = 1 });
-        var service = new TaskService(tasks.Object, comments.Object);
+        // Arrange
+        var (service, comments) = Arrange.Service(new TaskItem { Id = 1, Title = "Real task" });
 
-        var result = service.AddComment(999, "sam", "looks good");
+        // Act
+        var result = service.AddComment(taskId, "sam", "looks good");
 
-        tasks.Verify(t => t.GetById(999), Times.Once);
-        Assert.NotNull(result);
+        // Assert
+        Assert.Equal(CommentOutcome.TaskNotFound, result.Outcome);
+        Assert.Empty(comments.Stored);
     }
 
     [Fact]
-    public void AddComment_on_an_archived_task_is_rejected()
+    public void Comment_on_an_archived_task_is_rejected_and_nothing_is_stored()
     {
-        var tasks = new Mock<ITaskRepository>();
-        var comments = new Mock<ICommentRepository>();
-        tasks.Setup(t => t.GetById(It.IsAny<int>())).Returns(new TaskItem { Id = 2, IsArchived = true });
-        comments.Setup(c => c.Add(It.IsAny<TaskComment>())).Returns(new TaskComment { Id = 1 });
-        var service = new TaskService(tasks.Object, comments.Object);
+        var (service, comments) = Arrange.Service(new TaskItem { Id = 2, Title = "Old task", IsArchived = true });
 
         var result = service.AddComment(2, "sam", "still relevant?");
 
-        tasks.Verify(t => t.GetById(2), Times.Once);
-        Assert.NotNull(result);
+        Assert.Equal(CommentOutcome.TaskArchived, result.Outcome);
+        Assert.Empty(comments.Stored);
     }
 
     [Fact]
-    public void AddComment_on_an_open_task_is_stored()
+    public void Comment_on_an_open_task_is_stored()
     {
-        var tasks = new Mock<ITaskRepository>();
-        var comments = new Mock<ICommentRepository>();
-        tasks.Setup(t => t.GetById(It.IsAny<int>())).Returns(new TaskItem { Id = 1, Title = "Real task" });
-        comments.Setup(c => c.Add(It.IsAny<TaskComment>())).Returns(new TaskComment { Id = 1 });
-        var service = new TaskService(tasks.Object, comments.Object);
+        var (service, comments) = Arrange.Service(new TaskItem { Id = 1, Title = "Real task" });
 
         var result = service.AddComment(1, "sam", "looks good");
 
-        comments.Verify(c => c.Add(It.IsAny<TaskComment>()), Times.Once);
-        Assert.NotNull(result);
+        Assert.Equal(CommentOutcome.Added, result.Outcome);
+        var stored = Assert.Single(comments.Stored);
+        Assert.Equal(1, stored.TaskId);
+        Assert.Equal("looks good", stored.Body);
     }
 }
