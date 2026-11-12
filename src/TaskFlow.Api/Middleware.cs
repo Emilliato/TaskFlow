@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Extensions.Options;
 
 namespace TaskFlow.Api;
 
@@ -76,16 +79,20 @@ public class RequestTimingMiddleware(RequestDelegate next, ILogger<RequestTiming
 /// call next() — that is "short-circuiting": nothing below it, including the
 /// endpoint routing already picked, ever runs.
 /// </summary>
-public class ApiKeyGateMiddleware(RequestDelegate next, ILogger<ApiKeyGateMiddleware> logger)
+public class ApiKeyGateMiddleware(
+    RequestDelegate next, ILogger<ApiKeyGateMiddleware> logger, IOptions<TaskFlowOptions> options)
 {
     private const string HeaderName = "X-Api-Key";
-    private const string ExpectedKey = "taskflow-demo-key";  // real secret handling: episode 4.3
+
+    // The expected key comes from configuration, never from source code. Compared in fixed time.
+    private bool IsValid(string supplied) => CryptographicOperations.FixedTimeEquals(
+        Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(options.Value.AdminApiKey));
 
     public async Task InvokeAsync(HttpContext context)
     {
         if (context.Request.Path.StartsWithSegments("/admin"))
         {
-            if (!context.Request.Headers.TryGetValue(HeaderName, out var key) || key != ExpectedKey)
+            if (!context.Request.Headers.TryGetValue(HeaderName, out var key) || !IsValid(key.ToString()))
             {
                 // Routing already selected an endpoint, and it will never run.
                 logger.LogWarning("     GATE      401 short-circuit: {Endpoint} never runs",

@@ -17,6 +17,10 @@ public sealed class TaskFlowOptions
 
     [Range(1, 100)]
     public int DefaultPageSize { get; set; }
+
+    // A secret: it has no value in any file that is committed. [Required] makes a missing one a startup failure.
+    [Required, MinLength(16)]
+    public string AdminApiKey { get; set; } = "";
 }
 
 /// <summary>The rule an attribute cannot express: with SQLite, the folder that holds the file must exist.</summary>
