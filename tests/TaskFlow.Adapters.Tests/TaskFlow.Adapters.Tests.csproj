@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- These tests are about the OUTER layers: the repositories and the API's own classes.
+         The fakes from the Application tests are linked in, so one suite can judge them too. -->
+    <ProjectReference Include="..\..\src\TaskFlow.Application\TaskFlow.Application.csproj" />
+    <ProjectReference Include="..\..\src\TaskFlow.Infrastructure\TaskFlow.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\TaskFlow.Api\TaskFlow.Api.csproj" />
+    <Compile Include="..\TaskFlow.Application.Tests\TestDoubles.cs" Link="TestDoubles.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
