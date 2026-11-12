@@ -5,6 +5,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -58,17 +59,25 @@ if (builder.Configuration["Telemetry"] == "console")
 }
 
 // ---- Episode 3.3: compose the layers --------------------------------------
-// The connection string lives in configuration, not in code.
-var connectionString = builder.Configuration["TaskFlow:ConnectionString"]
-                       ?? "Data Source=taskflow.db";
+// Settings arrive as ONE typed object, checked before the first request is served:
+// ValidateDataAnnotations reads the attributes, the validator adds the rules attributes
+// cannot express, and ValidateOnStart runs them all when the host starts, not on first use.
+builder.Services.AddOptions<TaskFlowOptions>()
+    .BindConfiguration(TaskFlowOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<TaskFlowOptions>, TaskFlowOptionsValidator>();
+
+// The composition root needs two of the values right now, to choose what to register.
+var settings = builder.Configuration.GetSection(TaskFlowOptions.SectionName).Get<TaskFlowOptions>()
+               ?? new TaskFlowOptions();
 
 // ONE call plugs in the whole outer layer: the DbContext, SQLite, and the
 // implementations of ITaskRepository / ICommentRepository. The sensitive-data
 // flag is Development only, for the reason it always was.
 // "Storage" picks the implementation: Sqlite (the default) or InMemory. Nothing
 // above this line of code, and nothing below it, can tell the difference.
-var storage = builder.Configuration["TaskFlow:Storage"] ?? "Sqlite";
-builder.Services.AddInfrastructure(connectionString, builder.Environment.IsDevelopment(), storage);
+builder.Services.AddInfrastructure(settings.ConnectionString, builder.Environment.IsDevelopment(), settings.Storage);
 
 // The application layer: Scoped, because it holds repositories that hold a
 // scoped DbContext (episode 2.2's captive-dependency rule, still in force).
@@ -202,11 +211,11 @@ app.MapGet("/tasks", (
         [FromQuery] bool? done,
         [FromQuery] string? search,
         TaskService svc,
-        IConfiguration config,
+        IOptions<TaskFlowOptions> options,
         [FromQuery] int page = 1,
         [FromQuery] int? pageSize = null) =>
         Results.Ok(svc.List(new TaskFilter(done, search, page,
-                           pageSize ?? config.GetValue("TaskFlow:DefaultPageSize", 20)))
+                           pageSize ?? options.Value.DefaultPageSize))
                       .Select(task => task.ToResponse())))
     .WithSummary("List tasks, filtered and paged.");
 
