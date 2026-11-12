@@ -22,7 +22,12 @@ public class EfTaskRepository(TaskFlowDbContext db) : ITaskRepository
             query = query.Where(t => t.Done == filter.Done);
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
-            query = query.Where(t => EF.Functions.Like(t.Title, $"%{filter.Search}%"));
+        {
+            // LIKE gives % and _ a meaning of their own. A user who searches for "%" means the
+            // character, so escape the three characters LIKE treats specially.
+            var text = filter.Search.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+            query = query.Where(t => EF.Functions.Like(t.Title, $"%{text}%", "\\"));
+        }
 
         return query.OrderBy(t => t.Id)
                     .Skip((filter.Page - 1) * filter.PageSize)

@@ -12,11 +12,31 @@ internal class FakeTaskRepository(IEnumerable<TaskItem> seed) : ITaskRepository
     private readonly List<TaskItem> _tasks = seed.ToList();
 
     public IReadOnlyList<TaskItem> GetAll() => _tasks;
-    public IReadOnlyList<TaskItem> Search(TaskFilter filter) => _tasks.Where(t => !t.IsArchived).ToList();
+    public IReadOnlyList<TaskItem> Search(TaskFilter filter)
+    {
+        var query = _tasks.Where(t => !t.IsArchived);
+        if (filter.Done is not null) query = query.Where(t => t.Done == filter.Done);
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+            query = query.Where(t => t.Title.Contains(filter.Search, StringComparison.OrdinalIgnoreCase));
+        return query.OrderBy(t => t.Id).Skip((filter.Page - 1) * filter.PageSize).Take(filter.PageSize).ToList();
+    }
     public TaskItem? GetById(int id) => _tasks.FirstOrDefault(t => t.Id == id);
     public bool TitleExists(string title) => _tasks.Any(t => t.Title.Equals(title.Trim(), StringComparison.OrdinalIgnoreCase));
-    public TaskItem Add(TaskItem input) { _tasks.Add(input); return input; }
-    public TaskItem? Update(int id, TaskItem input) => throw new NotImplementedException();
+    public TaskItem Add(TaskItem input)
+    {
+        var added = input with { Id = _tasks.Count == 0 ? 1 : _tasks.Max(t => t.Id) + 1 };
+        _tasks.Add(added);
+        return added;
+    }
+
+    public TaskItem? Update(int id, TaskItem input)
+    {
+        var index = _tasks.FindIndex(t => t.Id == id);
+        if (index < 0) return null;
+        _tasks[index] = input with { Id = id, CreatedAt = _tasks[index].CreatedAt };
+        return _tasks[index];
+    }
+
     public bool Delete(int id) => _tasks.RemoveAll(t => t.Id == id) > 0;
 }
 
