@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using TaskFlow.Domain;
 
 namespace TaskFlow.Application;
@@ -18,8 +19,15 @@ public record TaskCommentSummary(int Id, string Title, int CommentCount);
 // status codes, JSON, DbContext or SQLite - so it can be constructed in a
 // unit test with two fakes and run in milliseconds.
 // ===========================================================================
-public class TaskService(ITaskRepository tasks, ICommentRepository comments)
+public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILogger<TaskService> logger)
 {
+    // Who is told when somebody comments: the person or team that created the task.
+    private static readonly Dictionary<string, string> OwnerEmails = new()
+    {
+        ["system"] = "ops@taskflow.example",
+        ["platform-team"] = "platform@taskflow.example",
+    };
+
     public IReadOnlyList<TaskItem> List(TaskFilter filter) => tasks.Search(filter);
 
     public TaskItem? Get(int id) => tasks.GetById(id);
@@ -43,10 +51,25 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments)
     // task was real. Now the answer has exactly one home.
     public AddCommentResult AddComment(int taskId, string author, string body)
     {
-        var task = tasks.GetById(taskId);
-        if (task is null) return new AddCommentResult(CommentOutcome.TaskNotFound);
-        if (!task.AcceptsComments) return new AddCommentResult(CommentOutcome.TaskArchived);
+        // One span around the use case: it shows up in a trace as a child of the HTTP request.
+        using var activity = TaskFlowTelemetry.Source.StartActivity("AddComment");
+        activity?.SetTag("task.id", taskId);
 
+        logger.LogInformation("Adding a comment to task {TaskId} by {Author}", taskId, author);
+        var task = tasks.GetById(taskId);
+        if (task is null)
+        {
+            logger.LogWarning("Comment rejected: task {TaskId} does not exist", taskId);
+            return new AddCommentResult(CommentOutcome.TaskNotFound);
+        }
+        if (!task.AcceptsComments)
+        {
+            logger.LogWarning("Comment rejected: task {TaskId} is archived", taskId);
+            return new AddCommentResult(CommentOutcome.TaskArchived);
+        }
+
+        var recipient = OwnerEmails[task.CreatedBy];
+        logger.LogDebug("Comment on task {TaskId} will notify the owner {CreatedBy}", taskId, task.CreatedBy);
         var saved = comments.Add(new TaskComment
         {
             TaskId = taskId,
@@ -54,6 +77,8 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments)
             Body = body,
             CreatedAt = DateTimeOffset.UtcNow,
         });
+        TaskFlowTelemetry.CommentsAdded.Add(1, new KeyValuePair<string, object?>("task.priority", task.Priority));
+        logger.LogInformation("Added comment {CommentId} to task {TaskId}", saved.Id, taskId);
         return new AddCommentResult(CommentOutcome.Added, saved);
     }
 

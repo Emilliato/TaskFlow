@@ -1,4 +1,5 @@
 using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using TaskFlow.Application;
 using TaskFlow.Domain;
 
@@ -23,7 +24,7 @@ public class InteractionTests
         ]);
         comments.Setup(c => c.CountByTask(It.IsAny<IReadOnlyCollection<int>>()))
                 .Returns(new Dictionary<int, int> { [1] = 2, [3] = 1 });
-        var service = new TaskService(tasks.Object, comments.Object);
+        var service = new TaskService(tasks.Object, comments.Object, NullLogger<TaskService>.Instance);
 
         var summary = service.GetCommentSummary();
 
@@ -38,7 +39,7 @@ public class InteractionTests
         var tasks = new Mock<ITaskRepository>();
         var comments = new Mock<ICommentRepository>();
         tasks.Setup(t => t.GetById(1)).Throws(new TimeoutException("database unavailable"));
-        var service = new TaskService(tasks.Object, comments.Object);
+        var service = new TaskService(tasks.Object, comments.Object, NullLogger<TaskService>.Instance);
 
         Assert.Throws<TimeoutException>(() => service.AddComment(1, "sam", "looks good"));
 

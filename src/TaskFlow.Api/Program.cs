@@ -5,18 +5,53 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using TaskFlow.Api;
 using TaskFlow.Application;
 using TaskFlow.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// One log line per event, so the pipeline reads top-to-bottom in the console.
-builder.Logging.AddSimpleConsole(options =>
+// Two console formats, one switch. Plain text is for people at a terminal.
+// LogFormat=json writes each event as one JSON object per line, which is what
+// a log pipeline parses. IncludeScopes puts each request's scopes (its
+// correlation id, its trace id) on every line written while it runs.
+if (builder.Configuration["LogFormat"] == "json")
 {
-    options.SingleLine = true;
-    options.TimestampFormat = "HH:mm:ss.fff ";
-});
+    builder.Logging.AddJsonConsole(options =>
+    {
+        options.IncludeScopes = true;
+        options.TimestampFormat = "HH:mm:ss.fff ";
+    });
+}
+else
+{
+    builder.Logging.AddSimpleConsole(options =>
+    {
+        options.IncludeScopes = true;
+        options.TimestampFormat = "HH:mm:ss.fff ";
+    });
+}
+
+// ---- Episode 4.2: traces and metrics, next to the logs --------------------
+// One switch again: Telemetry=console prints every span and metric to the
+// console, with no collector and no cloud account. Replace AddConsoleExporter
+// with AddOtlpExporter and the same data flows to Jaeger, Grafana, Application
+// Insights, Datadog: whatever speaks OTLP. The application code does not change.
+if (builder.Configuration["Telemetry"] == "console")
+{
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService("taskflow-api"))
+        .WithTracing(tracing => tracing
+            .AddAspNetCoreInstrumentation()                 // one span per incoming HTTP request
+            .AddSource(TaskFlowTelemetry.Name)              // plus our own AddComment span
+            .AddConsoleExporter())
+        .WithMetrics(metrics => metrics
+            .AddMeter(TaskFlowTelemetry.Name)               // our own counter
+            .AddConsoleExporter((_, reader) => reader.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 3000));
+}
 
 // ---- Episode 3.3: compose the layers --------------------------------------
 // The connection string lives in configuration, not in code.
@@ -139,7 +174,7 @@ app.Use(async (context, next) =>
 // 6. Proof that routing has already CHOSEN the endpoint — it just hasn't run it.
 app.Use(async (context, next) =>
 {
-    app.Logger.LogInformation("     ROUTING   selected: {Endpoint}",
+    app.Logger.LogDebug("     ROUTING   selected: {Endpoint}",
         context.GetEndpoint()?.DisplayName ?? "(no endpoint matched -> 404)");
 
     await next(context);
@@ -207,22 +242,31 @@ app.MapGet("/admin/stats", (TaskService svc) => Results.Ok(svc.GetStats()));
 // Look at what is left. Ask the application layer; translate its answer into
 // HTTP. The rule itself (does the task exist? is it archived?) lives in
 // TaskService.AddComment, where a unit test can reach it without a web server.
-app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddCommentRequest request, TaskService svc) =>
+app.MapPost("/tasks/{id:int}/comments", (
+        [FromRoute] int id, [FromBody] AddCommentRequest request, TaskService svc, ILogger<Program> logger) =>
     {
-        var result = svc.AddComment(id, request.Author, request.Body);
-        return result.Outcome switch
+        try
         {
-            CommentOutcome.Added => Results.Created(
-                $"/tasks/{id}/comments/{result.Comment!.Id}", result.Comment.ToResponse()),
-            CommentOutcome.TaskNotFound => Results.Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "Task not found.",
-                detail: $"There is no task {id} to comment on."),
-            _ => Results.Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Task is archived.",
-                detail: $"Task {id} is archived and no longer accepts comments."),
-        };
+            var result = svc.AddComment(id, request.Author, request.Body);
+            return result.Outcome switch
+            {
+                CommentOutcome.Added => Results.Created(
+                    $"/tasks/{id}/comments/{result.Comment!.Id}", result.Comment.ToResponse()),
+                CommentOutcome.TaskNotFound => Results.Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "Task not found.",
+                    detail: $"There is no task {id} to comment on."),
+                _ => Results.Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Task is archived.",
+                    detail: $"Task {id} is archived and no longer accepts comments."),
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not add comment to task {TaskId}", id);
+            return Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: "Could not save the comment.");
+        }
     })
     .WithSummary("Add a comment to a task.");
 

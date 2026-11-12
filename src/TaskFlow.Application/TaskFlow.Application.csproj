@@ -11,4 +11,10 @@
     <ProjectReference Include="..\TaskFlow.Domain\TaskFlow.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The logging ABSTRACTIONS only (ILogger<T>): no console, no provider.
+         Which sink the messages reach is the host's decision, not this layer's. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
 </Project>
