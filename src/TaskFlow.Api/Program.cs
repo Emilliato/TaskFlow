@@ -14,6 +14,10 @@ using TaskFlow.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Episode 4.3: `--ShowConfig=TaskFlow` prints every key in that section, the value that won, and
+// WHICH configuration provider supplied it, then exits. A diagnostic, not a feature.
+if (ConfigDiagnostics.TryPrint(builder.Configuration)) return;
+
 // Two console formats, one switch. Plain text is for people at a terminal.
 // LogFormat=json writes each event as one JSON object per line, which is what
 // a log pipeline parses. IncludeScopes puts each request's scopes (its
@@ -55,7 +59,7 @@ if (builder.Configuration["Telemetry"] == "console")
 
 // ---- Episode 3.3: compose the layers --------------------------------------
 // The connection string lives in configuration, not in code.
-var connectionString = builder.Configuration.GetConnectionString("TaskFlow")
+var connectionString = builder.Configuration["TaskFlow:ConnectionString"]
                        ?? "Data Source=taskflow.db";
 
 // ONE call plugs in the whole outer layer: the DbContext, SQLite, and the
@@ -63,7 +67,7 @@ var connectionString = builder.Configuration.GetConnectionString("TaskFlow")
 // flag is Development only, for the reason it always was.
 // "Storage" picks the implementation: Sqlite (the default) or InMemory. Nothing
 // above this line of code, and nothing below it, can tell the difference.
-var storage = builder.Configuration["Storage"] ?? "Sqlite";
+var storage = builder.Configuration["TaskFlow:Storage"] ?? "Sqlite";
 builder.Services.AddInfrastructure(connectionString, builder.Environment.IsDevelopment(), storage);
 
 // The application layer: Scoped, because it holds repositories that hold a
@@ -198,9 +202,11 @@ app.MapGet("/tasks", (
         [FromQuery] bool? done,
         [FromQuery] string? search,
         TaskService svc,
+        IConfiguration config,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20) =>
-        Results.Ok(svc.List(new TaskFilter(done, search, page, pageSize))
+        [FromQuery] int? pageSize = null) =>
+        Results.Ok(svc.List(new TaskFilter(done, search, page,
+                           pageSize ?? config.GetValue("TaskFlow:DefaultPageSize", 20)))
                       .Select(task => task.ToResponse())))
     .WithSummary("List tasks, filtered and paged.");
 
