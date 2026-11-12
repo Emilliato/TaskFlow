@@ -1,18 +1,20 @@
 using TaskFlow.Api;
-using TaskFlow.Application.Tests;
-using TaskFlow.Domain;
+using TaskFlow.Application;
 
 namespace TaskFlow.Adapters.Tests;
 
 public class CreateTaskRequestValidatorTests
 {
-    // The validator asks one question: does a task with this title exist?
-    // But it takes a TaskService, so the test has to build a whole one.
+    // The validator asks one question, so the test answers one question.
+    private sealed class StubTitles(params string[] existing) : ITaskTitles
+    {
+        public bool TitleExists(string title) => existing.Contains(title.Trim(), StringComparer.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task A_title_that_already_exists_is_rejected()
     {
-        var (service, _) = Arrange.Service(new TaskItem { Id = 1, Title = "Ship it" });
-        var validator = new CreateTaskRequestValidator(service);
+        var validator = new CreateTaskRequestValidator(new StubTitles("Ship it"));
 
         var result = await validator.ValidateAsync(new CreateTaskRequest { Title = "Ship it" });
 
@@ -22,8 +24,7 @@ public class CreateTaskRequestValidatorTests
     [Fact]
     public async Task A_new_title_is_accepted()
     {
-        var (service, _) = Arrange.Service(new TaskItem { Id = 1, Title = "Ship it" });
-        var validator = new CreateTaskRequestValidator(service);
+        var validator = new CreateTaskRequestValidator(new StubTitles("Ship it"));
 
         var result = await validator.ValidateAsync(new CreateTaskRequest { Title = "Write the docs" });
 

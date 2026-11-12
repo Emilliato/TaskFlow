@@ -20,7 +20,7 @@ public record TaskCommentSummary(int Id, string Title, int CommentCount);
 // unit test with two fakes and run in milliseconds.
 // ===========================================================================
 public class TaskService(
-    ITaskRepository tasks, ICommentRepository comments, IOwnerDirectory owners, ILogger<TaskService> logger)
+    ITaskRepository tasks, ICommentRepository comments, IOwnerDirectory owners, ILogger<TaskService> logger) : ITaskTitles
 {
     public IReadOnlyList<TaskItem> List(TaskFilter filter) => tasks.Search(filter);
 

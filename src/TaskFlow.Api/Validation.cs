@@ -16,7 +16,7 @@ namespace TaskFlow.Api;
 // ===========================================================================
 public class CreateTaskRequestValidator : AbstractValidator<CreateTaskRequest>
 {
-    public CreateTaskRequestValidator(TaskService tasks)
+    public CreateTaskRequestValidator(ITaskTitles titles)
     {
         // Cross-field: a rule about the relationship BETWEEN two properties.
         // No single attribute can express this, because an attribute only ever
@@ -37,12 +37,11 @@ public class CreateTaskRequestValidator : AbstractValidator<CreateTaskRequest>
             .WithErrorCode("DUE_DATE_TOO_FAR")
             .WithMessage("Due date is more than 90 days out — split the task instead.");
 
-        // Stateful: this rule needs the injected service. Attributes cannot.
-        // Since 3.3 it asks the application layer, in plain C#: how the
-        // lookup becomes SQL (the ToLower() rewrite from 3.2) is now
-        // Infrastructure's problem, not this file's.
+        // Stateful: this rule needs to ask a question. Attributes cannot.
+        // It asks through ITaskTitles, the one-method role it actually needs,
+        // not through the whole TaskService.
         RuleFor(request => request.Title)
-            .Must(title => !tasks.TitleExists(title))
+            .Must(title => !titles.TitleExists(title))
             .WithErrorCode("TITLE_ALREADY_EXISTS")
             .WithMessage("A task called '{PropertyValue}' already exists.");
     }
