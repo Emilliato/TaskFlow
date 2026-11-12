@@ -1,0 +1,3 @@
+[*.cs]
+# Turn the "use a message template, not an interpolated string" suggestion into a build warning.
+dotnet_diagnostic.CA2254.severity = warning

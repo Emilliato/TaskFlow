@@ -51,20 +51,21 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILo
     // task was real. Now the answer has exactly one home.
     public AddCommentResult AddComment(int taskId, string author, string body)
     {
-        logger.LogInformation($"Adding a comment to task {taskId} by {author}");
+        logger.LogInformation("Adding a comment to task {TaskId} by {Author}", taskId, author);
         var task = tasks.GetById(taskId);
         if (task is null)
         {
-            logger.LogWarning($"Comment rejected: task {taskId} does not exist");
+            logger.LogWarning("Comment rejected: task {TaskId} does not exist", taskId);
             return new AddCommentResult(CommentOutcome.TaskNotFound);
         }
         if (!task.AcceptsComments)
         {
-            logger.LogWarning($"Comment rejected: task {taskId} is archived");
+            logger.LogWarning("Comment rejected: task {TaskId} is archived", taskId);
             return new AddCommentResult(CommentOutcome.TaskArchived);
         }
 
         var recipient = OwnerEmails[task.CreatedBy];
+        logger.LogDebug("Comment on task {TaskId} will notify the owner {CreatedBy}", taskId, task.CreatedBy);
         var saved = comments.Add(new TaskComment
         {
             TaskId = taskId,
@@ -72,7 +73,7 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILo
             Body = body,
             CreatedAt = DateTimeOffset.UtcNow,
         });
-        logger.LogInformation($"Added comment {saved.Id} to task {taskId}, owner {recipient} notified");
+        logger.LogInformation("Added comment {CommentId} to task {TaskId}", saved.Id, taskId);
         return new AddCommentResult(CommentOutcome.Added, saved);
     }
 

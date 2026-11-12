@@ -240,7 +240,7 @@ app.MapPost("/tasks/{id:int}/comments", (
         }
         catch (Exception ex)
         {
-            logger.LogError($"Could not add comment to task {id}: {ex.Message}");
+            logger.LogError(ex, "Could not add comment to task {TaskId}", id);
             return Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: "Could not save the comment.");
         }
     })
