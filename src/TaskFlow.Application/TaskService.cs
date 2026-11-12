@@ -68,7 +68,8 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILo
             return new AddCommentResult(CommentOutcome.TaskArchived);
         }
 
-        var recipient = OwnerEmails[task.CreatedBy];
+        // Fall back to the ops mailbox for owners we do not know about.
+        var recipient = OwnerEmails.TryGetValue(task.CreatedBy, out var email) ? email : "ops@taskflow.example";
         logger.LogDebug("Comment on task {TaskId} will notify the owner {CreatedBy}", taskId, task.CreatedBy);
         var saved = comments.Add(new TaskComment
         {
