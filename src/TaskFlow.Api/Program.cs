@@ -139,7 +139,7 @@ app.Use(async (context, next) =>
 // 6. Proof that routing has already CHOSEN the endpoint — it just hasn't run it.
 app.Use(async (context, next) =>
 {
-    app.Logger.LogInformation("     ROUTING   selected: {Endpoint}",
+    app.Logger.LogDebug("     ROUTING   selected: {Endpoint}",
         context.GetEndpoint()?.DisplayName ?? "(no endpoint matched -> 404)");
 
     await next(context);
@@ -207,22 +207,31 @@ app.MapGet("/admin/stats", (TaskService svc) => Results.Ok(svc.GetStats()));
 // Look at what is left. Ask the application layer; translate its answer into
 // HTTP. The rule itself (does the task exist? is it archived?) lives in
 // TaskService.AddComment, where a unit test can reach it without a web server.
-app.MapPost("/tasks/{id:int}/comments", ([FromRoute] int id, [FromBody] AddCommentRequest request, TaskService svc) =>
+app.MapPost("/tasks/{id:int}/comments", (
+        [FromRoute] int id, [FromBody] AddCommentRequest request, TaskService svc, ILogger<Program> logger) =>
     {
-        var result = svc.AddComment(id, request.Author, request.Body);
-        return result.Outcome switch
+        try
         {
-            CommentOutcome.Added => Results.Created(
-                $"/tasks/{id}/comments/{result.Comment!.Id}", result.Comment.ToResponse()),
-            CommentOutcome.TaskNotFound => Results.Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "Task not found.",
-                detail: $"There is no task {id} to comment on."),
-            _ => Results.Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Task is archived.",
-                detail: $"Task {id} is archived and no longer accepts comments."),
-        };
+            var result = svc.AddComment(id, request.Author, request.Body);
+            return result.Outcome switch
+            {
+                CommentOutcome.Added => Results.Created(
+                    $"/tasks/{id}/comments/{result.Comment!.Id}", result.Comment.ToResponse()),
+                CommentOutcome.TaskNotFound => Results.Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "Task not found.",
+                    detail: $"There is no task {id} to comment on."),
+                _ => Results.Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Task is archived.",
+                    detail: $"Task {id} is archived and no longer accepts comments."),
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError($"Could not add comment to task {id}: {ex.Message}");
+            return Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: "Could not save the comment.");
+        }
     })
     .WithSummary("Add a comment to a task.");
 

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using TaskFlow.Application;
 using TaskFlow.Domain;
 
@@ -41,6 +42,6 @@ internal static class Arrange
     public static (TaskService Service, FakeCommentRepository Comments) Service(params TaskItem[] tasks)
     {
         var comments = new FakeCommentRepository();
-        return (new TaskService(new FakeTaskRepository(tasks), comments), comments);
+        return (new TaskService(new FakeTaskRepository(tasks), comments, NullLogger<TaskService>.Instance), comments);
     }
 }

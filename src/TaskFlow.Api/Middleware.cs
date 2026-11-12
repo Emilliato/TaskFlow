@@ -37,9 +37,9 @@ public class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationId
             return Task.CompletedTask;
         });
 
-        logger.LogInformation("--> IN   correlation  {Id}", correlationId);
+        logger.LogDebug("--> IN   correlation  {Id}", correlationId);
         await next(context);                       // hand off to the rest of the pipeline
-        logger.LogInformation("<-- OUT  correlation  {Id}", correlationId);
+        logger.LogDebug("<-- OUT  correlation  {Id}", correlationId);
     }
 }
 
@@ -49,7 +49,7 @@ public class RequestTimingMiddleware(RequestDelegate next, ILogger<RequestTiming
     public async Task InvokeAsync(HttpContext context)
     {
         var stopwatch = Stopwatch.StartNew();
-        logger.LogInformation("--> IN   timing       {Method} {Path}",
+        logger.LogDebug("--> IN   timing       {Method} {Path}",
             context.Request.Method, context.Request.Path);
 
         context.Response.OnStarting(() =>
@@ -62,8 +62,9 @@ public class RequestTimingMiddleware(RequestDelegate next, ILogger<RequestTiming
         await next(context);
 
         stopwatch.Stop();
-        logger.LogInformation("<-- OUT  timing       {Status} in {Elapsed:0.00} ms",
-            context.Response.StatusCode, stopwatch.Elapsed.TotalMilliseconds);
+        // The one line per request that stays at Information: what a person scanning the log wants.
+        logger.LogInformation("{Method} {Path} responded {StatusCode} in {ElapsedMs:0.00} ms",
+            context.Request.Method, context.Request.Path, context.Response.StatusCode, stopwatch.Elapsed.TotalMilliseconds);
     }
 }
 
@@ -92,7 +93,7 @@ public class ApiKeyGateMiddleware(RequestDelegate next, ILogger<ApiKeyGateMiddle
                 return;                            // <-- no next(): the pipeline stops here
             }
 
-            logger.LogInformation("     GATE      key accepted for {Path}", context.Request.Path);
+            logger.LogDebug("     GATE      key accepted for {Path}", context.Request.Path);
         }
 
         await next(context);

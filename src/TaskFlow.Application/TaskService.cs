@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using TaskFlow.Domain;
 
 namespace TaskFlow.Application;
@@ -18,8 +19,15 @@ public record TaskCommentSummary(int Id, string Title, int CommentCount);
 // status codes, JSON, DbContext or SQLite - so it can be constructed in a
 // unit test with two fakes and run in milliseconds.
 // ===========================================================================
-public class TaskService(ITaskRepository tasks, ICommentRepository comments)
+public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILogger<TaskService> logger)
 {
+    // Who is told when somebody comments: the person or team that created the task.
+    private static readonly Dictionary<string, string> OwnerEmails = new()
+    {
+        ["system"] = "ops@taskflow.example",
+        ["platform-team"] = "platform@taskflow.example",
+    };
+
     public IReadOnlyList<TaskItem> List(TaskFilter filter) => tasks.Search(filter);
 
     public TaskItem? Get(int id) => tasks.GetById(id);
@@ -43,10 +51,20 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments)
     // task was real. Now the answer has exactly one home.
     public AddCommentResult AddComment(int taskId, string author, string body)
     {
+        logger.LogInformation($"Adding a comment to task {taskId} by {author}");
         var task = tasks.GetById(taskId);
-        if (task is null) return new AddCommentResult(CommentOutcome.TaskNotFound);
-        if (!task.AcceptsComments) return new AddCommentResult(CommentOutcome.TaskArchived);
+        if (task is null)
+        {
+            logger.LogWarning($"Comment rejected: task {taskId} does not exist");
+            return new AddCommentResult(CommentOutcome.TaskNotFound);
+        }
+        if (!task.AcceptsComments)
+        {
+            logger.LogWarning($"Comment rejected: task {taskId} is archived");
+            return new AddCommentResult(CommentOutcome.TaskArchived);
+        }
 
+        var recipient = OwnerEmails[task.CreatedBy];
         var saved = comments.Add(new TaskComment
         {
             TaskId = taskId,
@@ -54,6 +72,7 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments)
             Body = body,
             CreatedAt = DateTimeOffset.UtcNow,
         });
+        logger.LogInformation($"Added comment {saved.Id} to task {taskId}, owner {recipient} notified");
         return new AddCommentResult(CommentOutcome.Added, saved);
     }
 
