@@ -46,4 +46,17 @@ public class AddCommentTests
         Assert.Equal(1, stored.TaskId);
         Assert.Equal("looks good", stored.Body);
     }
+
+    // The 500 from production: a task created through the API has CreatedBy "api-client",
+    // an owner the service had never heard of.
+    [Fact]
+    public void Comment_on_a_task_created_through_the_API_is_stored()
+    {
+        var (service, comments) = Arrange.Service(new TaskItem { Id = 4, Title = "Created by the API", CreatedBy = "api-client" });
+
+        var result = service.AddComment(4, "sam", "looks good");
+
+        Assert.Equal(CommentOutcome.Added, result.Outcome);
+        Assert.Single(comments.Stored);
+    }
 }
