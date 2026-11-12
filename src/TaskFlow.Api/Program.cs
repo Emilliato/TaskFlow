@@ -11,12 +11,23 @@ using TaskFlow.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// One log line per event, so the pipeline reads top-to-bottom in the console.
-builder.Logging.AddSimpleConsole(options =>
+// Two console formats, one switch. Plain text is for people at a terminal.
+// LogFormat=json writes each event as one JSON object per line, which is what
+// a log pipeline parses.
+if (builder.Configuration["LogFormat"] == "json")
 {
-    options.SingleLine = true;
-    options.TimestampFormat = "HH:mm:ss.fff ";
-});
+    builder.Logging.AddJsonConsole(options =>
+    {
+        options.TimestampFormat = "HH:mm:ss.fff ";
+    });
+}
+else
+{
+    builder.Logging.AddSimpleConsole(options =>
+    {
+        options.TimestampFormat = "HH:mm:ss.fff ";
+    });
+}
 
 // ---- Episode 3.3: compose the layers --------------------------------------
 // The connection string lives in configuration, not in code.
