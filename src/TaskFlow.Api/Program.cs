@@ -5,6 +5,9 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using TaskFlow.Api;
 using TaskFlow.Application;
 using TaskFlow.Infrastructure;
@@ -30,6 +33,24 @@ else
         options.IncludeScopes = true;
         options.TimestampFormat = "HH:mm:ss.fff ";
     });
+}
+
+// ---- Episode 4.2: traces and metrics, next to the logs --------------------
+// One switch again: Telemetry=console prints every span and metric to the
+// console, with no collector and no cloud account. Replace AddConsoleExporter
+// with AddOtlpExporter and the same data flows to Jaeger, Grafana, Application
+// Insights, Datadog: whatever speaks OTLP. The application code does not change.
+if (builder.Configuration["Telemetry"] == "console")
+{
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService("taskflow-api"))
+        .WithTracing(tracing => tracing
+            .AddAspNetCoreInstrumentation()                 // one span per incoming HTTP request
+            .AddSource(TaskFlowTelemetry.Name)              // plus our own AddComment span
+            .AddConsoleExporter())
+        .WithMetrics(metrics => metrics
+            .AddMeter(TaskFlowTelemetry.Name)               // our own counter
+            .AddConsoleExporter((_, reader) => reader.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 3000));
 }
 
 // ---- Episode 3.3: compose the layers --------------------------------------

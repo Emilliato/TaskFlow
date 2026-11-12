@@ -51,6 +51,10 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILo
     // task was real. Now the answer has exactly one home.
     public AddCommentResult AddComment(int taskId, string author, string body)
     {
+        // One span around the use case: it shows up in a trace as a child of the HTTP request.
+        using var activity = TaskFlowTelemetry.Source.StartActivity("AddComment");
+        activity?.SetTag("task.id", taskId);
+
         logger.LogInformation("Adding a comment to task {TaskId} by {Author}", taskId, author);
         var task = tasks.GetById(taskId);
         if (task is null)
@@ -73,6 +77,7 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILo
             Body = body,
             CreatedAt = DateTimeOffset.UtcNow,
         });
+        TaskFlowTelemetry.CommentsAdded.Add(1, new KeyValuePair<string, object?>("task.priority", task.Priority));
         logger.LogInformation("Added comment {CommentId} to task {TaskId}", saved.Id, taskId);
         return new AddCommentResult(CommentOutcome.Added, saved);
     }
