@@ -35,6 +35,13 @@ internal class FakeCommentRepository : ICommentRepository
         Stored.Where(c => taskIds.Contains(c.TaskId)).GroupBy(c => c.TaskId).ToDictionary(g => g.Key, g => g.Count());
 }
 
+// A directory with a fixed answer for every owner: the test decides who gets told.
+internal class FakeOwnerDirectory(string fallback = "fallback@test.example", params (string Owner, string Email)[] known) : IOwnerDirectory
+{
+    public string EmailFor(string createdBy) =>
+        known.Where(k => k.Owner == createdBy).Select(k => k.Email).DefaultIfEmpty(fallback).First();
+}
+
 internal static class Arrange
 {
     // One place builds the service under test, so a new constructor parameter
@@ -42,6 +49,6 @@ internal static class Arrange
     public static (TaskService Service, FakeCommentRepository Comments) Service(params TaskItem[] tasks)
     {
         var comments = new FakeCommentRepository();
-        return (new TaskService(new FakeTaskRepository(tasks), comments, NullLogger<TaskService>.Instance), comments);
+        return (new TaskService(new FakeTaskRepository(tasks), comments, new FakeOwnerDirectory(), NullLogger<TaskService>.Instance), comments);
     }
 }

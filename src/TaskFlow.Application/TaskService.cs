@@ -5,7 +5,7 @@ namespace TaskFlow.Application;
 
 public enum CommentOutcome { Added, TaskNotFound, TaskArchived }
 
-public record AddCommentResult(CommentOutcome Outcome, TaskComment? Comment = null);
+public record AddCommentResult(CommentOutcome Outcome, TaskComment? Comment = null, string? Recipient = null);
 
 public record TaskStats(int Total, int Done, int Open);
 
@@ -19,15 +19,9 @@ public record TaskCommentSummary(int Id, string Title, int CommentCount);
 // status codes, JSON, DbContext or SQLite - so it can be constructed in a
 // unit test with two fakes and run in milliseconds.
 // ===========================================================================
-public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILogger<TaskService> logger)
+public class TaskService(
+    ITaskRepository tasks, ICommentRepository comments, IOwnerDirectory owners, ILogger<TaskService> logger)
 {
-    // Who is told when somebody comments: the person or team that created the task.
-    private static readonly Dictionary<string, string> OwnerEmails = new()
-    {
-        ["system"] = "ops@taskflow.example",
-        ["platform-team"] = "platform@taskflow.example",
-    };
-
     public IReadOnlyList<TaskItem> List(TaskFilter filter) => tasks.Search(filter);
 
     public TaskItem? Get(int id) => tasks.GetById(id);
@@ -68,8 +62,7 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILo
             return new AddCommentResult(CommentOutcome.TaskArchived);
         }
 
-        // Fall back to the ops mailbox for owners we do not know about.
-        var recipient = OwnerEmails.TryGetValue(task.CreatedBy, out var email) ? email : "ops@taskflow.example";
+        var recipient = owners.EmailFor(task.CreatedBy);
         logger.LogDebug("Comment on task {TaskId} will notify the owner {CreatedBy}", taskId, task.CreatedBy);
         var saved = comments.Add(new TaskComment
         {
@@ -80,7 +73,7 @@ public class TaskService(ITaskRepository tasks, ICommentRepository comments, ILo
         });
         TaskFlowTelemetry.CommentsAdded.Add(1, new KeyValuePair<string, object?>("task.priority", task.Priority));
         logger.LogInformation("Added comment {CommentId} to task {TaskId}", saved.Id, taskId);
-        return new AddCommentResult(CommentOutcome.Added, saved);
+        return new AddCommentResult(CommentOutcome.Added, saved, recipient);
     }
 
     // The N+1 fix from 3.2, now a use case instead of endpoint code.

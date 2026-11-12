@@ -81,6 +81,7 @@ builder.Services.AddInfrastructure(settings.ConnectionString, builder.Environmen
 
 // The application layer: Scoped, because it holds repositories that hold a
 // scoped DbContext (episode 2.2's captive-dependency rule, still in force).
+builder.Services.AddSingleton<IOwnerDirectory, ConfiguredOwnerDirectory>();
 builder.Services.AddScoped<TaskService>();
 
 builder.Services.AddTransient<ITransientOperation, Operation>(); // new every resolution

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using TaskFlow.Application;
 using TaskFlow.Domain;
 
@@ -58,5 +59,19 @@ public class AddCommentTests
 
         Assert.Equal(CommentOutcome.Added, result.Outcome);
         Assert.Single(comments.Stored);
+    }
+
+    // The service asks the directory and reports its answer. It does not know, or need to know, where the answer lives.
+    [Fact]
+    public void The_owner_found_by_the_directory_is_the_one_to_tell()
+    {
+        var tasks = new[] { new TaskItem { Id = 3, Title = "Owned by a team", CreatedBy = "platform-team" } };
+        var service = new TaskService(new FakeTaskRepository(tasks), new FakeCommentRepository(),
+            new FakeOwnerDirectory("fallback@test.example", ("platform-team", "platform@test.example")),
+            NullLogger<TaskService>.Instance);
+
+        var result = service.AddComment(3, "sam", "looks good");
+
+        Assert.Equal("platform@test.example", result.Recipient);
     }
 }
