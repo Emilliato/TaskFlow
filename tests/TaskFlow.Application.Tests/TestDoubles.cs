@@ -12,11 +12,31 @@ internal class FakeTaskRepository(IEnumerable<TaskItem> seed) : ITaskRepository
     private readonly List<TaskItem> _tasks = seed.ToList();
 
     public IReadOnlyList<TaskItem> GetAll() => _tasks;
-    public IReadOnlyList<TaskItem> Search(TaskFilter filter) => _tasks.Where(t => !t.IsArchived).ToList();
+    public IReadOnlyList<TaskItem> Search(TaskFilter filter)
+    {
+        var query = _tasks.Where(t => !t.IsArchived);
+        if (filter.Done is not null) query = query.Where(t => t.Done == filter.Done);
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+            query = query.Where(t => t.Title.Contains(filter.Search, StringComparison.OrdinalIgnoreCase));
+        return query.OrderBy(t => t.Id).Skip((filter.Page - 1) * filter.PageSize).Take(filter.PageSize).ToList();
+    }
     public TaskItem? GetById(int id) => _tasks.FirstOrDefault(t => t.Id == id);
     public bool TitleExists(string title) => _tasks.Any(t => t.Title.Equals(title.Trim(), StringComparison.OrdinalIgnoreCase));
-    public TaskItem Add(TaskItem input) { _tasks.Add(input); return input; }
-    public TaskItem? Update(int id, TaskItem input) => throw new NotImplementedException();
+    public TaskItem Add(TaskItem input)
+    {
+        var added = input with { Id = _tasks.Count == 0 ? 1 : _tasks.Max(t => t.Id) + 1 };
+        _tasks.Add(added);
+        return added;
+    }
+
+    public TaskItem? Update(int id, TaskItem input)
+    {
+        var index = _tasks.FindIndex(t => t.Id == id);
+        if (index < 0) return null;
+        _tasks[index] = input with { Id = id, CreatedAt = _tasks[index].CreatedAt };
+        return _tasks[index];
+    }
+
     public bool Delete(int id) => _tasks.RemoveAll(t => t.Id == id) > 0;
 }
 
@@ -35,6 +55,13 @@ internal class FakeCommentRepository : ICommentRepository
         Stored.Where(c => taskIds.Contains(c.TaskId)).GroupBy(c => c.TaskId).ToDictionary(g => g.Key, g => g.Count());
 }
 
+// A directory with a fixed answer for every owner: the test decides who gets told.
+internal class FakeOwnerDirectory(string fallback = "fallback@test.example", params (string Owner, string Email)[] known) : IOwnerDirectory
+{
+    public string EmailFor(string createdBy) =>
+        known.Where(k => k.Owner == createdBy).Select(k => k.Email).DefaultIfEmpty(fallback).First();
+}
+
 internal static class Arrange
 {
     // One place builds the service under test, so a new constructor parameter
@@ -42,6 +69,6 @@ internal static class Arrange
     public static (TaskService Service, FakeCommentRepository Comments) Service(params TaskItem[] tasks)
     {
         var comments = new FakeCommentRepository();
-        return (new TaskService(new FakeTaskRepository(tasks), comments, NullLogger<TaskService>.Instance), comments);
+        return (new TaskService(new FakeTaskRepository(tasks), comments, new FakeOwnerDirectory(), NullLogger<TaskService>.Instance), comments);
     }
 }

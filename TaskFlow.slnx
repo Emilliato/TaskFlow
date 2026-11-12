@@ -6,6 +6,7 @@
     <Project Path="src/TaskFlow.Infrastructure/TaskFlow.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/TaskFlow.Adapters.Tests/TaskFlow.Adapters.Tests.csproj" />
     <Project Path="tests/TaskFlow.Application.Tests/TaskFlow.Application.Tests.csproj" />
   </Folder>
 </Solution>

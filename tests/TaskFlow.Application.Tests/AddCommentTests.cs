@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using TaskFlow.Application;
 using TaskFlow.Domain;
 
@@ -45,5 +46,32 @@ public class AddCommentTests
         var stored = Assert.Single(comments.Stored);
         Assert.Equal(1, stored.TaskId);
         Assert.Equal("looks good", stored.Body);
+    }
+
+    // The 500 from production: a task created through the API has CreatedBy "api-client",
+    // an owner the service had never heard of.
+    [Fact]
+    public void Comment_on_a_task_created_through_the_API_is_stored()
+    {
+        var (service, comments) = Arrange.Service(new TaskItem { Id = 4, Title = "Created by the API", CreatedBy = "api-client" });
+
+        var result = service.AddComment(4, "sam", "looks good");
+
+        Assert.Equal(CommentOutcome.Added, result.Outcome);
+        Assert.Single(comments.Stored);
+    }
+
+    // The service asks the directory and reports its answer. It does not know, or need to know, where the answer lives.
+    [Fact]
+    public void The_owner_found_by_the_directory_is_the_one_to_tell()
+    {
+        var tasks = new[] { new TaskItem { Id = 3, Title = "Owned by a team", CreatedBy = "platform-team" } };
+        var service = new TaskService(new FakeTaskRepository(tasks), new FakeCommentRepository(),
+            new FakeOwnerDirectory("fallback@test.example", ("platform-team", "platform@test.example")),
+            NullLogger<TaskService>.Instance);
+
+        var result = service.AddComment(3, "sam", "looks good");
+
+        Assert.Equal("platform@test.example", result.Recipient);
     }
 }

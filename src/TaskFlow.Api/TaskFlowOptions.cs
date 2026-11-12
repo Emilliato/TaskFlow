@@ -18,6 +18,13 @@ public sealed class TaskFlowOptions
     [Range(1, 100)]
     public int DefaultPageSize { get; set; }
 
+    // Who is told when somebody comments, by the owner that created the task (CreatedBy).
+    public Dictionary<string, string> OwnerEmails { get; set; } = new();
+
+    // Used for an owner that is not in the list above.
+    [Required]
+    public string FallbackOwnerEmail { get; set; } = "";
+
     // A secret: it has no value in any file that is committed. [Required] makes a missing one a startup failure.
     [Required, MinLength(16)]
     public string AdminApiKey { get; set; } = "";
