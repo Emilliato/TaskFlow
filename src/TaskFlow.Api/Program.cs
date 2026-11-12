@@ -13,11 +13,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Two console formats, one switch. Plain text is for people at a terminal.
 // LogFormat=json writes each event as one JSON object per line, which is what
-// a log pipeline parses.
+// a log pipeline parses. IncludeScopes puts each request's scopes (its
+// correlation id, its trace id) on every line written while it runs.
 if (builder.Configuration["LogFormat"] == "json")
 {
     builder.Logging.AddJsonConsole(options =>
     {
+        options.IncludeScopes = true;
         options.TimestampFormat = "HH:mm:ss.fff ";
     });
 }
@@ -25,6 +27,7 @@ else
 {
     builder.Logging.AddSimpleConsole(options =>
     {
+        options.IncludeScopes = true;
         options.TimestampFormat = "HH:mm:ss.fff ";
     });
 }

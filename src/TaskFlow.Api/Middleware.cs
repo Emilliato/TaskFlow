@@ -37,9 +37,12 @@ public class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationId
             return Task.CompletedTask;
         });
 
-        logger.LogDebug("--> IN   correlation  {Id}", correlationId);
-        await next(context);                       // hand off to the rest of the pipeline
-        logger.LogDebug("<-- OUT  correlation  {Id}", correlationId);
+        // A SCOPE: every line logged while this request runs, by ANY class, carries the
+        // id as a property. Nobody has to pass it around or remember to add it.
+        using (logger.BeginScope("CorrelationId:{CorrelationId}", correlationId))
+        {
+            await next(context);                   // hand off to the rest of the pipeline
+        }
     }
 }
 
