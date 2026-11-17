@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "GrpcDemo";
+
+package taskcatalog;
+
+// The contract. Both sides are generated from this one file.
+service TaskCatalog {
+  rpc GetTask   (GetTaskRequest)   returns (TaskReply);
+  rpc ListTasks (ListTasksRequest) returns (ListTasksReply);
+  rpc WatchTasks (ListTasksRequest) returns (stream TaskReply);   // server streaming
+}
+
+message GetTaskRequest   { int32 id = 1; }
+message ListTasksRequest { int32 count = 1; }
+message ListTasksReply   { repeated TaskReply tasks = 1; }
+
+message TaskReply {
+  int32  id = 1;
+  string title = 2;
+  bool   done = 3;
+  string priority = 4;
+  string created_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
