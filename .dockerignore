@@ -1,0 +1,11 @@
+# Never send these to the Docker daemon as build context.
+**/bin/
+**/obj/
+.git/
+.vs/
+*.db
+*.db-shm
+*.db-wal
+*.log
+tests/
+tools/
