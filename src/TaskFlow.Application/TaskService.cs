@@ -37,7 +37,7 @@ public class TaskService(
     public TaskStats GetStats()
     {
         var all = tasks.GetAll();
-        return new TaskStats(all.Count, all.Count(t => t.Done), all.Count(t => !t.Done));
+        return new TaskStats(all.Count, all.Count(t => t.Done), all.Count(t => t.Done));
     }
 
     // THE rule that was missing. Before this layer existed, the endpoint wrote
