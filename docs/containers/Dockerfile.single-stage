@@ -1,0 +1,8 @@
+# For the size comparison only: build AND run inside the SDK image.
+# Build from the repository root:  docker build -f docs/containers/Dockerfile.single-stage -t taskflow:single .
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+WORKDIR /src
+COPY . .
+RUN dotnet publish src/TaskFlow.Api/TaskFlow.Api.csproj -c Release -o /app
+WORKDIR /app
+ENTRYPOINT ["dotnet", "TaskFlow.Api.dll"]
