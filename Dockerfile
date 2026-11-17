@@ -19,6 +19,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
+# The folder for the SQLite file, owned by the unprivileged user the base image
+# already defines. A volume mounted here keeps the data when the container goes.
+RUN mkdir -p /var/lib/taskflow && chown $APP_UID /var/lib/taskflow
+USER $APP_UID
+
 # Documentation only: the app listens on 8080 inside the container.
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "TaskFlow.Api.dll"]
