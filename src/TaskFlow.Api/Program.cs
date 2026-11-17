@@ -3,6 +3,7 @@
 // answers back into status codes and DTOs. It never touches a DbContext. The
 // only place it meets EF Core at all is the single AddInfrastructure call below.
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -117,6 +118,14 @@ builder.Services.AddCors(options => options.AddPolicy("dashboard", policy => pol
 // ---------------------------------------------------------------------------
 
 var app = builder.Build();
+
+// Episode 5.1: a new container starts with an EMPTY disk, so no database file exists yet.
+// Create it, or bring an existing one up to date, before the first request is served.
+if (settings.Storage.Equals("Sqlite", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    scope.ServiceProvider.GetRequiredService<TaskFlowDbContext>().Database.Migrate();
+}
 
 // =====================  THE REQUEST PIPELINE (episode 2.3)  ================
 // Registration ORDER is the API here. Each Use* call wraps everything that is
