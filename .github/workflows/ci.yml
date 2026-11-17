@@ -1,0 +1,64 @@
+name: CI
+
+# Run on every push to any branch, and on every pull request.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up the .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build
+
+      - name: Publish the API
+        run: dotnet publish src/TaskFlow.Api --configuration Release --no-build --output publish
+
+      - name: Keep the published output
+        uses: actions/upload-artifact@v7
+        with:
+          name: taskflow-api
+          path: publish
+          retention-days: 3
+
+  docker-build:
+    name: Build the Docker image
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Build the image (not pushed anywhere)
+        run: docker build --tag taskflow:ci .
+
+      - name: Show the image
+        run: docker image ls taskflow
