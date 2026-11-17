@@ -76,7 +76,7 @@ async Task Consume()
     {
         var text = Encoding.UTF8.GetString(delivery.Body.Span);
         await SlowJob();
-        await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false);   // only now does the broker forget it
+        await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false);   // done: the broker may forget it
         Console.WriteLine($"consumer: finished '{text}' at {Seconds(total)}");
         if (++done == JobCount) finished.TrySetResult();
     };
