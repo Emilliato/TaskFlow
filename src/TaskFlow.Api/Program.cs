@@ -187,9 +187,11 @@ app.UseCors("dashboard");
 
 // 5. A deliberate failure raised from MIDDLEWARE (not from an endpoint), used
 //    to prove which middleware can and cannot catch it. Same spirit as /diag.
+//    Development only: a route that anyone can call to make the server fail is a
+//    teaching probe, not something to ship to Production.
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path == "/diag/boom-middleware")
+    if (app.Environment.IsDevelopment() && context.Request.Path == "/diag/boom-middleware")
         throw new InvalidOperationException("Simulated failure raised from middleware.");
 
     await next(context);
@@ -317,30 +319,35 @@ app.MapPost("/binding/{id:int}", (
     }))
     .WithSummary("Show where each bound argument came from.");
 
-// The DI lifetime probe from episode 2.2.
-app.MapGet("/diag", (
-    ITransientOperation transient,
-    IScopedOperation scoped,
-    ISingletonOperation singleton,
-    OperationLogger logger) => Results.Ok(new
+// The teaching probes. Development only: in Production these routes did not
+// need to exist, and one of them let any caller make the server throw on purpose.
+if (app.Environment.IsDevelopment())
 {
-    endpoint = new
+    // The DI lifetime probe from episode 2.2.
+    app.MapGet("/diag", (
+        ITransientOperation transient,
+        IScopedOperation scoped,
+        ISingletonOperation singleton,
+        OperationLogger logger) => Results.Ok(new
     {
-        transient = Short(transient.Id),
-        scoped = Short(scoped.Id),
-        singleton = Short(singleton.Id),
-    },
-    service = new
-    {
-        transient = Short(logger.Transient.Id),
-        scoped = Short(logger.Scoped.Id),
-        singleton = Short(logger.Singleton.Id),
-    },
-}));
+        endpoint = new
+        {
+            transient = Short(transient.Id),
+            scoped = Short(scoped.Id),
+            singleton = Short(singleton.Id),
+        },
+        service = new
+        {
+            transient = Short(logger.Transient.Id),
+            scoped = Short(logger.Scoped.Id),
+            singleton = Short(logger.Singleton.Id),
+        },
+    }));
 
-// A deliberate failure raised from an ENDPOINT: a task that does not exist,
-// dereferenced anyway. Exactly the kind of bug that reaches production.
-app.MapGet("/diag/boom", (TaskService svc) => Results.Ok(svc.Get(999)!.Title));
+    // A deliberate failure raised from an ENDPOINT: a task that does not exist,
+    // dereferenced anyway. Exactly the kind of bug that reaches production.
+    app.MapGet("/diag/boom", (TaskService svc) => Results.Ok(svc.Get(999)!.Title));
+}
 
 app.Run();
 
